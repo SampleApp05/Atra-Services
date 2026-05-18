@@ -34,4 +34,7 @@ export const Config = {
   cache: {
     priceTtlMs: parseEnvInt('PRICE_TTL_MS', 30_000),
   },
+  server: {
+    port: parseEnvInt('PORT', 3000),
+  },
 } as const
