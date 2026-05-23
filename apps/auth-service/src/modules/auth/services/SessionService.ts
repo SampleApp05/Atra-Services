@@ -114,13 +114,23 @@ export class SessionService {
     await this.sessionRepository.revoke(session.id)
 
     // 4. Create new session (rotation)
-    return this.create(
+    const result = await this.create(
       session.accountId,
       actorWalletId,
       deviceName,
       deviceType,
       lastIp
     )
+
+    // 5. Audit the rotation separately (SESSION_CREATED is already written by create())
+    await this.db.insert(auditLogs).values({
+      accountId: session.accountId,
+      actorWalletId,
+      action: 'SESSION_REFRESHED',
+      metadata: { oldSessionId: session.id, newSessionId: result.sessionId },
+    })
+
+    return result
   }
 
   /**

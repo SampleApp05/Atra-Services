@@ -8,8 +8,12 @@ import { createAuthRouter } from './modules/auth/routes/authRoutes.js'
 import { createWalletRouter } from './modules/wallets/routes/walletRoutes.js'
 import { createRoleRoutes } from './modules/roles/routes/roleRoutes.js'
 import { createRecoveryRoutes } from './modules/recovery/routes/recoveryRoutes.js'
+import { createAuditRoutes } from './modules/audit/routes/auditRoutes.js'
+import { createAuthMiddleware } from './middleware/authenticate.js'
 import { NonceService } from './modules/identity/services/NonceService.js'
 import { SignatureService } from './modules/identity/services/SignatureService.js'
+// Side-effect import: augments Express Request type
+import './types/express.js'
 
 const app = express()
 app.use(express.json())
@@ -18,15 +22,20 @@ app.use(express.json())
 const nonceService = new NonceService(db)
 const signatureService = new SignatureService()
 
-// MARK: - Routes
+// MARK: - Auth middleware (applied to all protected routes)
+const authenticate = createAuthMiddleware(db)
 
+// MARK: - Public routes (no JWT required)
 app.use('/identity', createIdentityRouter(db))
 app.use('/auth',     createAuthRouter(db))
-app.use('/wallets',  createWalletRouter(db))
-app.use('/roles',    createRoleRoutes(db, nonceService, signatureService))
-app.use('/recovery', createRecoveryRoutes(db, nonceService, signatureService))
 
-// MARK: - Health
+// MARK: - Protected routes
+app.use('/wallets',  authenticate, createWalletRouter(db))
+app.use('/roles',    authenticate, createRoleRoutes(db, nonceService, signatureService))
+app.use('/recovery', authenticate, createRecoveryRoutes(db, nonceService, signatureService))
+app.use('/audit',    authenticate, createAuditRoutes(db))
+
+// MARK: - Health (public)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
