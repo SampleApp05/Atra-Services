@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/database" },
+    { "path": "./apps/market-service" },
+    { "path": "./apps/auth-service" }
+  ]
+}

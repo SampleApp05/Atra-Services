@@ -1,0 +1,25 @@
+{
+  "name": "@atra/auth-service",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist",
+    "db:generate": "cd ../../packages/database && npm run db:generate",
+    "db:migrate": "cd ../../packages/database && npm run db:migrate"
+  },
+  "dependencies": {
+    "@atra/database": "file:../../packages/database",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "tsx": "^4.22.3",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
+  }
+}
