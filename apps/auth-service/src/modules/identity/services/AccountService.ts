@@ -12,6 +12,7 @@ import {
 } from '@atra/database'
 import { NonceService } from './NonceService.js'
 import { SignatureService } from './SignatureService.js'
+import type { ChainService } from '../../../shared/chains/chain.service.js'
 
 // MARK: - Result Types
 
@@ -33,17 +34,20 @@ export class AccountService {
   private readonly db: Db
   private readonly nonceService: NonceService
   private readonly signatureService: SignatureService
+  private readonly chainService: ChainService
 
   // MARK: Init
 
   constructor(
     db: Db,
     nonceService: NonceService,
-    signatureService: SignatureService
+    signatureService: SignatureService,
+    chainService: ChainService
   ) {
     this.db = db
     this.nonceService = nonceService
     this.signatureService = signatureService
+    this.chainService = chainService
   }
 
   // MARK: Public API
@@ -57,13 +61,18 @@ export class AccountService {
     address: string,
     chainId: number
   ): Promise<ChallengeResult> {
+    // 0. Reject unsupported chains immediately
+    if (!this.chainService.isSupported(chainId)) {
+      throw new Error('UNSUPPORTED_CHAIN')
+    }
+
     const normalised = address.toLowerCase()
 
-    // Upsert wallet (address is UNIQUE — find or create)
+    // Upsert wallet — find or create for this (address, chain) pair
     let [wallet] = await this.db
       .select()
       .from(wallets)
-      .where(eq(wallets.address, normalised))
+      .where(and(eq(wallets.address, normalised), eq(wallets.chainId, chainId)))
       .limit(1)
 
     if (!wallet) {
@@ -99,7 +108,7 @@ export class AccountService {
     const [wallet] = await this.db
       .select()
       .from(wallets)
-      .where(eq(wallets.address, normalised))
+      .where(and(eq(wallets.address, normalised), eq(wallets.chainId, chainId)))
       .limit(1)
 
     if (!wallet) throw new Error('WALLET_NOT_FOUND')

@@ -58,11 +58,12 @@ export class RoleService {
   async createRoleChallenge(
     accountId: string,
     ownerWalletId: string,
-    targetAddress: string
+    targetAddress: string,
+    chainId: number
   ): Promise<DualChallengeResult> {
     await this.assertOwner(accountId, ownerWalletId)
 
-    const target = await this.findWalletByAddress(targetAddress)
+    const target = await this.findWalletByAddress(targetAddress, chainId)
     if (!target) throw new Error('TARGET_WALLET_NOT_FOUND')
 
     const purpose = 'GRANT_AUTH' as NoncePurpose
@@ -92,12 +93,13 @@ export class RoleService {
     ownerNonce: string,
     ownerSignature: string,
     targetNonce: string,
-    targetSignature: string
+    targetSignature: string,
+    chainId: number
   ): Promise<void> {
     const ownerAddress = await this.getWalletAddress(ownerWalletId)
     await this.assertOwner(accountId, ownerWalletId)
 
-    const target = await this.findWalletByAddress(targetAddress)
+    const target = await this.findWalletByAddress(targetAddress, chainId)
     if (!target) throw new Error('TARGET_WALLET_NOT_FOUND')
 
     const purpose = noncePurposeFor(operation)
@@ -267,11 +269,11 @@ export class RoleService {
     if (rows.length === 0) throw new Error('NOT_OWNER')
   }
 
-  private async findWalletByAddress(address: string) {
+  private async findWalletByAddress(address: string, chainId: number) {
     const [row] = await this.db
       .select()
       .from(wallets)
-      .where(eq(wallets.address, address.toLowerCase()))
+      .where(and(eq(wallets.address, address.toLowerCase()), eq(wallets.chainId, chainId)))
       .limit(1)
     return row ?? null
   }

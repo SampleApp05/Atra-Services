@@ -91,6 +91,9 @@ function buildDb({
 
 // MARK: - Tests
 
+// A mock ChainService that accepts all chain IDs used in tests
+const mockChainService = { isSupported: () => true }
+
 describe('AccountService', () => {
   let nonceService: NonceService
   let signatureService: SignatureService
@@ -114,7 +117,7 @@ describe('AccountService', () => {
   describe('createChallenge', () => {
     it('creates a challenge for an existing wallet', async () => {
       const db = buildDb()
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       const result = await service.createChallenge(ADDRESS, CHAIN_ID)
 
@@ -130,7 +133,7 @@ describe('AccountService', () => {
       const newWallet = mockWallet()
       ;(db._returning as ReturnType<typeof vi.fn>).mockResolvedValueOnce([newWallet])
 
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
       const result = await service.createChallenge(ADDRESS, CHAIN_ID)
 
       expect(db._insert).toHaveBeenCalled()
@@ -139,7 +142,7 @@ describe('AccountService', () => {
 
     it('normalises address to lowercase', async () => {
       const db = buildDb()
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await service.createChallenge('0xAABBCC', CHAIN_ID)
 
@@ -154,7 +157,7 @@ describe('AccountService', () => {
   describe('verifyAndProvision', () => {
     it('throws WALLET_NOT_FOUND when wallet does not exist', async () => {
       const db = buildDb({ walletRows: [] })
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await expect(
         service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
@@ -163,7 +166,7 @@ describe('AccountService', () => {
 
     it('throws INVALID_OR_EXPIRED_NONCE when no valid challenge', async () => {
       const db = buildDb({ challengeRows: [] })
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await expect(
         service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
@@ -173,7 +176,7 @@ describe('AccountService', () => {
     it('throws SIGNATURE_MISMATCH when signature is invalid', async () => {
       ;(signatureService.verifySignature as ReturnType<typeof vi.fn>).mockReturnValue(false)
       const db = buildDb()
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await expect(
         service.verifyAndProvision(ADDRESS, NONCE, 'badsig', CHAIN_ID)
@@ -182,7 +185,7 @@ describe('AccountService', () => {
 
     it('marks nonce as used after valid signature', async () => {
       const db = buildDb()
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
 
@@ -191,7 +194,7 @@ describe('AccountService', () => {
 
     it('runs transaction when no existing roles', async () => {
       const db = buildDb({ roleRows: [] })
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
 
@@ -200,7 +203,7 @@ describe('AccountService', () => {
 
     it('skips transaction when account already exists', async () => {
       const db = buildDb({ roleRows: [{ id: 'role-1' }] })
-      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService)
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
 

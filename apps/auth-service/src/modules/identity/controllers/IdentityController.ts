@@ -102,6 +102,7 @@ export class IdentityController {
       const tokens = await this.sessionService.create(
         result.account.id,
         result.wallet.id,
+        result.wallet.chainId,
         deviceName,
         deviceType,
         ip

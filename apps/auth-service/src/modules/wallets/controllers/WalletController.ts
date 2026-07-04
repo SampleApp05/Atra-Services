@@ -113,7 +113,8 @@ export class WalletController {
         walletId,
         newAddress,
         nonce,
-        signature
+        signature,
+        req.auth?.chainId ?? 0
       )
       res.status(200).json(result)
     } catch (err) {

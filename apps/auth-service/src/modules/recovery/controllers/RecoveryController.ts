@@ -19,7 +19,12 @@ export class RecoveryController {
         res.status(400).json({ error: 'MISSING_FIELDS' })
         return
       }
-      const result = await this.recoveryService.createRecoveryChallenge(accountId, recoveryAddress)
+      const chainId = req.auth?.chainId
+      if (!chainId) {
+        res.status(401).json({ error: 'UNAUTHORIZED' })
+        return
+      }
+      const result = await this.recoveryService.createRecoveryChallenge(accountId, recoveryAddress, chainId)
       res.status(200).json(result)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'INTERNAL_ERROR'
@@ -43,7 +48,12 @@ export class RecoveryController {
         res.status(400).json({ error: 'MISSING_FIELDS' })
         return
       }
-      const result = await this.recoveryService.executeRecovery(accountId, recoveryAddress, nonce, signature)
+      const chainId = req.auth?.chainId
+      if (!chainId) {
+        res.status(401).json({ error: 'UNAUTHORIZED' })
+        return
+      }
+      const result = await this.recoveryService.executeRecovery(accountId, recoveryAddress, nonce, signature, chainId)
       res.status(200).json(result)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'INTERNAL_ERROR'

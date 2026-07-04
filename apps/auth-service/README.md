@@ -28,6 +28,8 @@ All identity is cryptographic — no passwords. Users sign EIP-191 messages with
 ## Architecture
 
 ```
+GET  /config              ← public    → supported chains for frontend bootstrap
+
 POST /identity/challenge   ← public
 POST /identity/verify      ← public   → issues accessToken + refreshToken
 POST /auth/refresh         ← public   → rotates refresh token
@@ -53,14 +55,20 @@ The service uses [Drizzle ORM](https://orm.drizzle.team/) over PostgreSQL and st
 
 ## Environment Variables
 
-| Variable                | Required | Default | Description                              |
-|-------------------------|----------|---------|------------------------------------------|
-| `DATABASE_URL`          | ✅       | —       | PostgreSQL connection string             |
-| `JWT_SECRET`            | ✅       | —       | HS256 signing secret (≥ 32 chars)        |
-| `PORT`                  | ❌       | `3001`  | HTTP port                                |
-| `ACCESS_TOKEN_TTL`      | ❌       | `15m`   | JWT access token lifetime (ms string)    |
-| `REFRESH_TOKEN_TTL_DAYS`| ❌       | `30`    | Refresh token lifetime in days           |
-| `NONCE_TTL_MINUTES`     | ❌       | `5`     | Challenge nonce lifetime in minutes      |
+| Variable                | Required | Default                | Description                                   |
+|-------------------------|----------|------------------------|-----------------------------------------------|
+| `DATABASE_URL`          | ✅       | —                      | PostgreSQL connection string                  |
+| `JWT_SECRET`            | ✅       | —                      | HS256 signing secret (≥ 32 chars)             |
+| `PORT`                  | ❌       | `3001`                 | HTTP port                                     |
+| `SUPPORTED_CHAINS`      | ❌       | `sepolia`              | Comma-separated chain keys to enable          |
+| `DEFAULT_CHAIN`         | ❌       | `sepolia`              | Default chain key for new sessions            |
+| `ETHEREUM_RPC`          | ❌       | —                      | HTTP RPC for Ethereum mainnet                 |
+| `ETHEREUM_WS`           | ❌       | —                      | WebSocket URL for Ethereum mainnet            |
+| `SEPOLIA_RPC`           | ❌       | —                      | HTTP RPC for Sepolia                          |
+| `SEPOLIA_WS`            | ❌       | —                      | WebSocket URL for Sepolia                     |
+| `ACCESS_TOKEN_TTL`      | ❌       | `15m`                  | JWT access token lifetime (ms string)         |
+| `REFRESH_TOKEN_TTL_DAYS`| ❌       | `30`                   | Refresh token lifetime in days                |
+| `NONCE_TTL_MINUTES`     | ❌       | `5`                    | Challenge nonce lifetime in minutes           |
 
 Copy `.env.example` to `.env` before running.
 
@@ -84,6 +92,25 @@ All request/response bodies are JSON. Protected routes require `Authorization: B
 Error responses always follow:
 ```json
 { "error": "ERROR_CODE" }
+```
+
+---
+
+### Config
+
+#### `GET /config`
+
+Returns the default chain and list of supported chains. **No auth required.** This is the first request the frontend makes on startup.
+
+**Response `200`**
+```json
+{
+  "defaultChain": 11155111,
+  "supportedChains": [
+    { "id": 11155111, "key": "sepolia",  "name": "Ethereum Sepolia", "testnet": true  },
+    { "id": 1,        "key": "ethereum", "name": "Ethereum",         "testnet": false }
+  ]
+}
 ```
 
 ---
@@ -113,6 +140,7 @@ Step 1 of login/registration. Issues a nonce the wallet must sign.
 | Status | Error              | Condition                     |
 |--------|--------------------|-------------------------------|
 | `400`  | `MISSING_FIELDS`   | `address` or `chainId` absent |
+| `400`  | `UNSUPPORTED_CHAIN`| `chainId` is not in the enabled chains list |
 
 ---
 
@@ -457,7 +485,7 @@ The middleware validates:
 1. JWT signature + expiry
 2. Session exists in DB and is not revoked/expired
 3. Account still exists
-4. Attaches `req.auth = { accountId, sessionId, walletId, roles }` for downstream handlers
+4. Attaches `req.auth = { accountId, sessionId, walletId, roles, chainId }` for downstream handlers
 
 ---
 
@@ -471,6 +499,7 @@ The middleware validates:
 | `SESSION_EXPIRED_OR_REVOKED`      | Session no longer active                            |
 | `ACCOUNT_NOT_FOUND`               | Account deleted after token was issued              |
 | `WALLET_NOT_FOUND`                | Wallet address not in DB                            |
+| `UNSUPPORTED_CHAIN`               | `chainId` is not in the enabled chains              |
 | `INVALID_OR_EXPIRED_NONCE`        | Nonce not found, expired, or already used           |
 | `SIGNATURE_MISMATCH`              | EIP-191 signature doesn't match expected address    |
 | `INSUFFICIENT_ROLE`               | Caller lacks the required role for the operation    |
@@ -511,9 +540,13 @@ Every sensitive operation writes a row to `audit_logs`:
 
 ```
 src/
+├── shared/
+│   └── chains/               ChainService, chain types & constants
+│       └── README.md         Chain configuration docs
 ├── middleware/
 │   └── authenticate.ts       JWT + session + account guard
 ├── modules/
+│   ├── config/               GET /config — chain list for frontend
 │   ├── identity/             Login / account provisioning
 │   ├── auth/                 Token + session management
 │   ├── wallets/              Wallet linking
@@ -536,4 +569,4 @@ npx vitest run            # all tests once
 npx vitest run --reporter=verbose  # with test names
 ```
 
-156 tests across 16 test files — all unit tests with mocked DB.
+182 tests across 18 test files — all unit tests with mocked DB.

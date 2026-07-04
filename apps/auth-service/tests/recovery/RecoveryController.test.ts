@@ -8,9 +8,16 @@ const mockService = {
   executeRecovery: vi.fn(),
 }
 
+const CHAIN_ID = 11155111
+
 function buildApp() {
   const app = express()
   app.use(express.json())
+  // Fake auth middleware — simulates what authenticate.ts attaches on protected routes
+  app.use((req: any, _res: any, next: any) => {
+    req.auth = { accountId: 'acc', sessionId: 'sess', walletId: 'wid', roles: ['RECOVERY'], chainId: CHAIN_ID }
+    next()
+  })
   const controller = new RecoveryController(mockService as any)
   app.post('/recovery/challenge', controller.challenge)
   app.post('/recovery/execute',   controller.execute)

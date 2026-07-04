@@ -40,7 +40,7 @@ const mockDb: any = {
 
 const tokenService  = new TokenService(SECRET)
 const validToken    = tokenService.signAccessToken({
-  accountId: ACCOUNT_ID, sessionId: SESSION_ID, roles: ['OWNER', 'AUTH'],
+  accountId: ACCOUNT_ID, sessionId: SESSION_ID, roles: ['OWNER', 'AUTH'], chainId: 11155111,
 })
 
 const activeSession = {
@@ -114,7 +114,7 @@ describe('authenticate middleware', () => {
 
   it('returns 401 when JWT is signed with the wrong secret', async () => {
     const badToken = new TokenService('different-secret-32-chars-long!!!!').signAccessToken({
-      accountId: ACCOUNT_ID, sessionId: SESSION_ID, roles: [],
+      accountId: ACCOUNT_ID, sessionId: SESSION_ID, roles: [], chainId: 1,
     })
     const res = await request(buildApp())
       .get('/protected')

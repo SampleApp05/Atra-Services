@@ -10,6 +10,7 @@ import type { SessionRepository } from '../../src/modules/auth/repositories/Sess
 const ACCOUNT_ID  = 'account-uuid-1'
 const WALLET_ID   = 'wallet-uuid-1'
 const SESSION_ID  = 'session-uuid-1'
+const CHAIN_ID    = 11155111
 const ACCESS_TOKEN  = 'access.token.jwt'
 const REFRESH_RAW   = 'rawtoken'
 const REFRESH_HASH  = 'hashtoken'
@@ -18,6 +19,7 @@ function mockSession(overrides = {}) {
   return {
     id: SESSION_ID,
     accountId: ACCOUNT_ID,
+    chainId: CHAIN_ID,
     refreshTokenHash: REFRESH_HASH,
     deviceName: 'iPhone',
     deviceType: 'mobile',
@@ -99,7 +101,7 @@ describe('SessionService', () => {
 
   describe('create', () => {
     it('returns accessToken, refreshToken, sessionId, accountId', async () => {
-      const result = await service.create(ACCOUNT_ID, WALLET_ID, 'iPhone', 'mobile', '1.2.3.4')
+      const result = await service.create(ACCOUNT_ID, WALLET_ID, CHAIN_ID, 'iPhone', 'mobile', '1.2.3.4')
 
       expect(result.accessToken).toBe(ACCESS_TOKEN)
       expect(result.refreshToken).toBe(REFRESH_RAW)
@@ -108,25 +110,26 @@ describe('SessionService', () => {
     })
 
     it('persists the session with the hashed refresh token', async () => {
-      await service.create(ACCOUNT_ID, WALLET_ID, 'iPhone', 'mobile', '1.2.3.4')
+      await service.create(ACCOUNT_ID, WALLET_ID, CHAIN_ID, 'iPhone', 'mobile', '1.2.3.4')
       expect(sessionRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ refreshTokenHash: REFRESH_HASH })
       )
     })
 
     it('signs the access token with accountId, sessionId, and roles', async () => {
-      await service.create(ACCOUNT_ID, WALLET_ID, 'iPhone', 'mobile', '1.2.3.4')
+      await service.create(ACCOUNT_ID, WALLET_ID, CHAIN_ID, 'iPhone', 'mobile', '1.2.3.4')
       expect(tokenService.signAccessToken).toHaveBeenCalledWith(
         expect.objectContaining({
           accountId: ACCOUNT_ID,
           sessionId: SESSION_ID,
           roles: expect.arrayContaining(['OWNER', 'AUTH']),
+          chainId: CHAIN_ID,
         })
       )
     })
 
     it('writes an audit log entry', async () => {
-      await service.create(ACCOUNT_ID, WALLET_ID, 'iPhone', 'mobile', '1.2.3.4')
+      await service.create(ACCOUNT_ID, WALLET_ID, CHAIN_ID, 'iPhone', 'mobile', '1.2.3.4')
       expect(db.insert).toHaveBeenCalled()
     })
   })

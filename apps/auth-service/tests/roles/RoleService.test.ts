@@ -117,7 +117,7 @@ describe('RoleService', () => {
         .mockResolvedValueOnce({ id: 'oc-1', nonce: 'nonce-owner' })
         .mockResolvedValueOnce({ id: 'tc-1', nonce: 'nonce-target' })
 
-      const result = await service.createRoleChallenge(ACCOUNT_ID, OWNER_WID, TARGET_ADDR)
+      const result = await service.createRoleChallenge(ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 11155111)
 
       expect(result.ownerChallengeId).toBe('oc-1')
       expect(result.targetChallengeId).toBe('tc-1')
@@ -129,7 +129,7 @@ describe('RoleService', () => {
     it('throws NOT_OWNER when caller has no OWNER role', async () => {
       dbSelectCalls = [() => makeNoRows()]
       await expect(
-        service.createRoleChallenge(ACCOUNT_ID, OWNER_WID, TARGET_ADDR)
+        service.createRoleChallenge(ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 11155111)
       ).rejects.toThrow('NOT_OWNER')
     })
 
@@ -139,7 +139,7 @@ describe('RoleService', () => {
         () => makeNoRows(),
       ]
       await expect(
-        service.createRoleChallenge(ACCOUNT_ID, OWNER_WID, '0xunknown')
+        service.createRoleChallenge(ACCOUNT_ID, OWNER_WID, '0xunknown', 11155111)
       ).rejects.toThrow('TARGET_WALLET_NOT_FOUND')
     })
   })
@@ -173,6 +173,8 @@ describe('RoleService', () => {
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
           OWNER_NONCE, 'sig-owner',
           TARGET_NONCE, 'sig-target'
+        ,
+          11155111
         )
       ).resolves.toBeUndefined()
 
@@ -189,6 +191,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
           OWNER_NONCE, 'sig', TARGET_NONCE, 'sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('NOT_OWNER')
     })
@@ -203,6 +207,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, '0xbad', 'GRANT_AUTH',
           OWNER_NONCE, 'sig', TARGET_NONCE, 'sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('TARGET_WALLET_NOT_FOUND')
     })
@@ -218,6 +224,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
           OWNER_NONCE, 'sig', TARGET_NONCE, 'sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('INVALID_OWNER_NONCE')
     })
@@ -234,6 +242,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
           OWNER_NONCE, 'sig', TARGET_NONCE, 'sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('INVALID_TARGET_NONCE')
     })
@@ -251,6 +261,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
           OWNER_NONCE, 'bad-sig', TARGET_NONCE, 'sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('OWNER_SIGNATURE_MISMATCH')
     })
@@ -270,6 +282,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
           OWNER_NONCE, 'sig', TARGET_NONCE, 'bad-sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('TARGET_SIGNATURE_MISMATCH')
     })
@@ -299,6 +313,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'TRANSFER_OWNER',
           OWNER_NONCE, 'sig', TARGET_NONCE, 'sig'
+        ,
+          11155111
         )
       ).resolves.toBeUndefined()
     })
@@ -326,6 +342,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'REVOKE_AUTH',
           'on', 'sig', 'tn', 'sig'
+        ,
+          11155111
         )
       ).resolves.toBeUndefined()
     })
@@ -356,6 +374,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'ASSIGN_RECOVERY',
           'on', 'sig', 'tn', 'sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('RECOVERY_WALLET_ALREADY_ASSIGNED')
     })
@@ -381,6 +401,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'ASSIGN_RECOVERY',
           'on', 'sig', 'tn', 'sig'
+        ,
+          11155111
         )
       ).resolves.toBeUndefined()
     })
@@ -411,6 +433,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'REMOVE_WALLET',
           'on', 'sig', 'tn', 'sig'
+        ,
+          11155111
         )
       ).rejects.toThrow('CANNOT_REMOVE_OWNER_WALLET')
     })
@@ -436,6 +460,8 @@ describe('RoleService', () => {
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'REMOVE_WALLET',
           'on', 'sig', 'tn', 'sig'
+        ,
+          11155111
         )
       ).resolves.toBeUndefined()
     })

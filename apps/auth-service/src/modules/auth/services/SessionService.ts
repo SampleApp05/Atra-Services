@@ -46,6 +46,7 @@ export class SessionService {
   async create(
     accountId: string,
     walletId: string,
+    chainId: number,
     deviceName: string,
     deviceType: string,
     lastIp: string
@@ -59,6 +60,7 @@ export class SessionService {
     // 3. Persist session
     const session = await this.sessionRepository.create({
       accountId,
+      chainId,
       refreshTokenHash: hash,
       deviceName,
       deviceType,
@@ -71,6 +73,7 @@ export class SessionService {
       accountId,
       sessionId: session.id,
       roles,
+      chainId,
     })
 
     // 5. Audit
@@ -117,6 +120,7 @@ export class SessionService {
     const result = await this.create(
       session.accountId,
       actorWalletId,
+      session.chainId,
       deviceName,
       deviceType,
       lastIp

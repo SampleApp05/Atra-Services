@@ -32,23 +32,24 @@ describe('TokenService', () => {
 
   describe('signAccessToken / verifyAccessToken', () => {
     it('round-trips a valid payload', () => {
-      const payload = { accountId: 'acc-1', sessionId: 'ses-1', roles: ['OWNER', 'AUTH'] }
+      const payload = { accountId: 'acc-1', sessionId: 'ses-1', roles: ['OWNER', 'AUTH'], chainId: 11155111 }
       const token = service.signAccessToken(payload)
       const decoded = service.verifyAccessToken(token)
 
       expect(decoded.accountId).toBe('acc-1')
       expect(decoded.sessionId).toBe('ses-1')
       expect(decoded.roles).toEqual(['OWNER', 'AUTH'])
+      expect(decoded.chainId).toBe(11155111)
     })
 
     it('throws on tampered token', () => {
-      const token = service.signAccessToken({ accountId: 'a', sessionId: 's', roles: [] })
+      const token = service.signAccessToken({ accountId: 'a', sessionId: 's', roles: [], chainId: 1 })
       expect(() => service.verifyAccessToken(token + 'tampered')).toThrow()
     })
 
     it('throws on token signed with a different secret', () => {
       const other = new TokenService('another-secret-that-is-long-enough-!!!')
-      const token = other.signAccessToken({ accountId: 'a', sessionId: 's', roles: [] })
+      const token = other.signAccessToken({ accountId: 'a', sessionId: 's', roles: [], chainId: 1 })
       expect(() => service.verifyAccessToken(token)).toThrow()
     })
   })

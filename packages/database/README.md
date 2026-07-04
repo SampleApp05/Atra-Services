@@ -38,14 +38,16 @@ The `db` client is a [Drizzle ORM](https://orm.drizzle.team/) instance backed by
 
 ### `wallets`
 
-Represents a blockchain wallet address. Created on first login or wallet-link.
+Represents a blockchain wallet address on a specific chain. The same address may exist on multiple chains as separate wallet records.
 
-| Column      | Type        | Notes                          |
-|-------------|-------------|--------------------------------|
-| `id`        | `uuid` PK   | Auto-generated                 |
-| `address`   | `text` UNIQUE | Lowercase hex address        |
-| `chainId`   | `integer`   | EVM chain ID (e.g. `1`, `8453`) |
-| `createdAt` | `timestamp` | Default `now()`                |
+| Column      | Type        | Notes                                                   |
+|-------------|-------------|---------------------------------------------------------|
+| `id`        | `uuid` PK   | Auto-generated                                          |
+| `address`   | `text`      | Lowercase hex address                                   |
+| `chainId`   | `integer`   | EVM chain ID (e.g. `1`, `11155111`)                     |
+| `createdAt` | `timestamp` | Default `now()`                                         |
+
+> **Unique constraint**: `UNIQUE(address, chain_id)` — the same address on different chains is a different wallet record.
 
 ---
 
@@ -102,6 +104,7 @@ Active refresh-token sessions. Refresh tokens are stored as SHA-256 hashes only.
 |--------------------|-------------|-----------------------------------------|
 | `id`               | `uuid` PK   |                                         |
 | `accountId`        | `uuid`      | FK → `accounts.id`                      |
+| `chainId`          | `integer`   | EVM chain ID embedded in the JWT        |
 | `refreshTokenHash` | `text`      | SHA-256 of the raw opaque refresh token |
 | `deviceName`       | `text`      | e.g. `"iPhone 15"`                      |
 | `deviceType`       | `text`      | e.g. `"mobile"`, `"desktop"`            |

@@ -66,9 +66,9 @@ packages/
 <details>
 <summary><strong>auth-service</strong> — Wallet-based authentication, sessions, roles &amp; recovery</summary>
 
-Handles the full authentication lifecycle for ATRA wallet accounts. Authentication is challenge/signature based — no passwords. Includes JWT session management, multi-wallet role assignment, ownership transfer, and account recovery.
+Handles the full authentication lifecycle for ATRA wallet accounts. Authentication is challenge/signature based — no passwords. Includes JWT session management, multi-wallet role assignment, ownership transfer, account recovery, and a public `GET /config` endpoint that tells the frontend which chains are enabled.
 
-- **156 tests across 16 test files**
+- **182 tests across 18 test files**
 - Stack: Express, ethers.js, jsonwebtoken, Drizzle ORM, postgres.js
 - Port: `3001` (default)
 
@@ -213,7 +213,7 @@ pnpm --filter @atra/auth-service test -- --watch
 
 | App / Package | Tests | Framework |
 |---|---|---|
-| `auth-service` | 156 (16 files) | Vitest |
+| `auth-service` | 182 (18 files) | Vitest |
 | `market-service` | 84 | Vitest |
 
 ---

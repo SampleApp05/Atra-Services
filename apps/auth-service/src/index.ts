@@ -3,6 +3,8 @@
 import 'dotenv/config'
 import express from 'express'
 import { db } from './db/index.js'
+import { ChainService } from './shared/chains/chain.service.js'
+import { createConfigRouter } from './modules/config/routes/configRoutes.js'
 import { createIdentityRouter } from './modules/identity/routes/identityRoutes.js'
 import { createAuthRouter } from './modules/auth/routes/authRoutes.js'
 import { createWalletRouter } from './modules/wallets/routes/walletRoutes.js'
@@ -18,6 +20,11 @@ import './types/express.js'
 const app = express()
 app.use(express.json())
 
+// MARK: - Chain configuration
+const supportedKeys = (process.env['SUPPORTED_CHAINS'] ?? 'sepolia').split(',').map((s) => s.trim())
+const defaultKey    = process.env['DEFAULT_CHAIN'] ?? 'sepolia'
+const chainService  = new ChainService(supportedKeys, defaultKey)
+
 // MARK: - Shared service instances
 const nonceService = new NonceService(db)
 const signatureService = new SignatureService()
@@ -26,7 +33,8 @@ const signatureService = new SignatureService()
 const authenticate = createAuthMiddleware(db)
 
 // MARK: - Public routes (no JWT required)
-app.use('/identity', createIdentityRouter(db))
+app.use('/config',   createConfigRouter(chainService))
+app.use('/identity', createIdentityRouter(db, chainService))
 app.use('/auth',     createAuthRouter(db))
 
 // MARK: - Protected routes

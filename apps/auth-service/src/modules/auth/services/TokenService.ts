@@ -10,6 +10,7 @@ export interface AccessTokenPayload {
   accountId: string
   sessionId: string
   roles: string[]
+  chainId: number
 }
 
 export interface TokenPair {

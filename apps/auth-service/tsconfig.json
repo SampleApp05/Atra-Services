@@ -8,6 +8,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
+    "rootDir": "../../",
     "outDir": "./dist",
     "paths": {
       "@atra/database": ["../../packages/database/src/index.ts"]

@@ -20,6 +20,7 @@ export interface AuthContext {
   sessionId: string
   walletId: string | null
   roles: string[]
+  chainId: number
 }
 
 // MARK: - Factory
@@ -48,7 +49,7 @@ export function createAuthMiddleware(db: Db): RequestHandler {
         return
       }
 
-      const { accountId, sessionId, roles } = payload
+      const { accountId, sessionId, roles, chainId } = payload
 
       // MARK: 3. Verify session is alive (not revoked, not expired)
       const now = new Date()
@@ -93,7 +94,7 @@ export function createAuthMiddleware(db: Db): RequestHandler {
       const walletId = roleRow?.walletId ?? null
 
       // MARK: 6. Attach auth context
-      req.auth = { accountId, sessionId, walletId, roles: roles as WalletRole[] }
+      req.auth = { accountId, sessionId, walletId, roles: roles as WalletRole[], chainId }
 
       next()
     } catch {

@@ -16,6 +16,7 @@ declare global {
         sessionId: string
         walletId: string | null   // resolved from the session's account
         roles: WalletRole[]
+        chainId: number
       }
     }
   }

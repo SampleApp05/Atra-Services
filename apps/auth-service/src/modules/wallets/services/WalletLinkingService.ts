@@ -62,12 +62,12 @@ export class WalletLinkingService {
     // 1. Enforce caller holds OWNER or AUTH
     await this.assertHasRole(accountId, callerWalletId, ['OWNER', 'AUTH'])
 
-    // 2. Prevent linking an address that is already in use globally
+    // 2. Prevent linking an address that is already in use on this chain
     const normalised = newAddress.toLowerCase()
     const [existing] = await this.db
       .select()
       .from(wallets)
-      .where(eq(wallets.address, normalised))
+      .where(and(eq(wallets.address, normalised), eq(wallets.chainId, chainId)))
       .limit(1)
 
     if (existing) throw new Error('ADDRESS_ALREADY_LINKED')
@@ -99,18 +99,19 @@ export class WalletLinkingService {
     callerWalletId: string,
     newAddress: string,
     nonce: string,
-    signature: string
+    signature: string,
+    chainId: number
   ): Promise<LinkVerifyResult> {
     const normalised = newAddress.toLowerCase()
 
     // 1. Enforce caller holds OWNER or AUTH
     await this.assertHasRole(accountId, callerWalletId, ['OWNER', 'AUTH'])
 
-    // 2. Find the new wallet
+    // 2. Find the new wallet by (address, chain)
     const [wallet] = await this.db
       .select()
       .from(wallets)
-      .where(eq(wallets.address, normalised))
+      .where(and(eq(wallets.address, normalised), eq(wallets.chainId, chainId)))
       .limit(1)
 
     if (!wallet) throw new Error('WALLET_NOT_FOUND')

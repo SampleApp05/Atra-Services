@@ -23,7 +23,13 @@ export class RoleController {
         return
       }
 
-      const result = await this.roleService.createRoleChallenge(accountId, walletId, targetAddress)
+      const chainId = req.auth?.chainId
+      if (!chainId) {
+        res.status(401).json({ error: 'UNAUTHORIZED' })
+        return
+      }
+
+      const result = await this.roleService.createRoleChallenge(accountId, walletId, targetAddress, chainId)
       res.status(200).json(result)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'INTERNAL_ERROR'
@@ -66,10 +72,17 @@ export class RoleController {
         return
       }
 
+      const chainId = req.auth?.chainId
+      if (!chainId) {
+        res.status(401).json({ error: 'UNAUTHORIZED' })
+        return
+      }
+
       await this.roleService.verifyAndApply(
         accountId, walletId, targetAddress, operation,
         ownerNonce, ownerSignature,
-        targetNonce, targetSignature
+        targetNonce, targetSignature,
+        chainId
       )
       res.status(200).json({ success: true })
     } catch (err: unknown) {

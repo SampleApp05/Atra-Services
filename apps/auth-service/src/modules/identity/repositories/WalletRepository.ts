@@ -2,7 +2,7 @@
 
 import type { Db, NewWallet, Wallet } from '@atra/database'
 import { wallets } from '@atra/database'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 // MARK: - Repository
 
@@ -19,11 +19,11 @@ export class WalletRepository {
 
   // MARK: Public API
 
-  async findByAddress(address: string): Promise<Wallet | null> {
+  async findByAddress(address: string, chainId: number): Promise<Wallet | null> {
     const [row] = await this.db
       .select()
       .from(wallets)
-      .where(eq(wallets.address, address.toLowerCase()))
+      .where(and(eq(wallets.address, address.toLowerCase()), eq(wallets.chainId, chainId)))
       .limit(1)
 
     return row ?? null

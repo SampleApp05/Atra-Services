@@ -9,10 +9,11 @@ import { IdentityController } from '../controllers/IdentityController.js'
 import { TokenService } from '../../auth/services/TokenService.js'
 import { SessionService } from '../../auth/services/SessionService.js'
 import { SessionRepository } from '../../auth/repositories/SessionRepository.js'
+import type { ChainService } from '../../../shared/chains/chain.service.js'
 
 // MARK: - Factory
 
-export function createIdentityRouter(db: Db): Router {
+export function createIdentityRouter(db: Db, chainService: ChainService): Router {
   const router = Router()
 
   const secret = process.env['JWT_SECRET']
@@ -20,7 +21,7 @@ export function createIdentityRouter(db: Db): Router {
 
   const nonceService     = new NonceService(db)
   const signatureService = new SignatureService()
-  const accountService   = new AccountService(db, nonceService, signatureService)
+  const accountService   = new AccountService(db, nonceService, signatureService, chainService)
   const tokenService     = new TokenService(secret)
   const sessionRepo      = new SessionRepository(db)
   const sessionService   = new SessionService(db, tokenService, sessionRepo)

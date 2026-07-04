@@ -32,9 +32,10 @@ export class RecoveryService {
    */
   async createRecoveryChallenge(
     accountId: string,
-    recoveryAddress: string
+    recoveryAddress: string,
+    chainId: number
   ): Promise<RecoveryChallengeResult> {
-    const wallet = await this.findWalletByAddress(recoveryAddress)
+    const wallet = await this.findWalletByAddress(recoveryAddress, chainId)
     if (!wallet) throw new Error('RECOVERY_WALLET_NOT_FOUND')
 
     await this.assertRecoveryRole(accountId, wallet.id)
@@ -55,9 +56,10 @@ export class RecoveryService {
     accountId: string,
     recoveryAddress: string,
     nonce: string,
-    signature: string
+    signature: string,
+    chainId: number
   ): Promise<{ newOwnerWalletId: string }> {
-    const wallet = await this.findWalletByAddress(recoveryAddress)
+    const wallet = await this.findWalletByAddress(recoveryAddress, chainId)
     if (!wallet) throw new Error('RECOVERY_WALLET_NOT_FOUND')
 
     await this.assertRecoveryRole(accountId, wallet.id)
@@ -130,11 +132,11 @@ export class RecoveryService {
 
   // MARK: - Private: Helpers
 
-  private async findWalletByAddress(address: string) {
+  private async findWalletByAddress(address: string, chainId: number) {
     const [row] = await this.db
       .select()
       .from(wallets)
-      .where(eq(wallets.address, address.toLowerCase()))
+      .where(and(eq(wallets.address, address.toLowerCase()), eq(wallets.chainId, chainId)))
       .limit(1)
     return row ?? null
   }
