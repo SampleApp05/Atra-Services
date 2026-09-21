@@ -33,7 +33,7 @@ To run a single app in development mode:
 
 ```bash
 npm run dev -w @atra/auth-service
-npm run dev -w apps/market-service
+npm run dev -w @atra/market-service
 ```
 
 ---
@@ -205,7 +205,7 @@ npm test
 
 # Run tests for a specific app
 npm test -w @atra/auth-service
-npm test -w apps/market-service
+npm test -w @atra/market-service
 
 # Watch mode
 npm test -w @atra/auth-service -- --watch
