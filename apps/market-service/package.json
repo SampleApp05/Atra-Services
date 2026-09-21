@@ -1,5 +1,5 @@
 {
-  "name": "atra-dataprovider",
+  "name": "@atra/market-service",
   "version": "1.0.0",
   "description": "",
   "type": "module",
@@ -14,15 +14,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SampleApp05/Atra-DataProvider.git"
+    "url": "git+https://github.com/SampleApp05/Atra-Services.git",
+    "directory": "apps/market-service"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/SampleApp05/Atra-DataProvider/issues"
+    "url": "https://github.com/SampleApp05/Atra-Services/issues"
   },
-  "homepage": "https://github.com/SampleApp05/Atra-DataProvider#readme",
+  "homepage": "https://github.com/SampleApp05/Atra-Services/tree/main/apps/market-service#readme",
   "devDependencies": {
     "@types/dotenv": "^6.1.1",
     "@types/express": "^5.0.6",

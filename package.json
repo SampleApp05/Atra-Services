@@ -1,64 +1,25 @@
-{{
-
-  "name": "atra",  "name": "atra-dataprovider",
-
-  "private": true,  "version": "1.0.0",
-
-  "version": "0.0.1",  "description": "",
-
-  "scripts": {  "type": "module",
-
-    "build": "turbo run build",  "main": "dist/index.js",
-
-    "dev": "turbo run dev",  "scripts": {
-
-    "test": "turbo run test",    "build": "tsc",
-
-    "lint": "turbo run lint",    "dev": "tsx watch src/index.ts",
-
-    "clean": "turbo run clean"    "start": "node dist/index.js",
-
-  },    "test": "vitest run",
-
-  "devDependencies": {    "test:watch": "vitest",
-
-    "turbo": "^2.0.0",    "test:coverage": "vitest run --coverage"
-
-    "typescript": "^5.4.5"  },
-
-  },  "repository": {
-
-  "engines": {    "type": "git",
-
-    "node": ">=20.0.0",    "url": "git+https://github.com/SampleApp05/Atra-DataProvider.git"
-
-    "pnpm": ">=9.0.0"  },
-
-  }  "keywords": [],
-
-}  "author": "",
-
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/SampleApp05/Atra-DataProvider/issues"
+{
+  "name": "atra",
+  "private": true,
+  "version": "0.0.1",
+  "packageManager": "npm@11.19.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean"
   },
-  "homepage": "https://github.com/SampleApp05/Atra-DataProvider#readme",
   "devDependencies": {
-    "@types/dotenv": "^6.1.1",
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.9.0",
-    "@types/supertest": "^7.2.0",
-    "@types/ws": "^8.18.1",
-    "@vitest/coverage-v8": "^4.1.6",
-    "supertest": "^7.2.2",
-    "tsx": "^4.22.2",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.6"
+    "turbo": "^2.0.0",
+    "typescript": "^6.0.3"
   },
-  "dependencies": {
-    "axios": "^1.16.1",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "ws": "^8.20.1"
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   }
 }

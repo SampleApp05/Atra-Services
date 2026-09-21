@@ -78,9 +78,9 @@ Copy `.env.example` to `.env` before running.
 
 ```bash
 cd apps/auth-service
-pnpm install
-pnpm dev          # ts-node watch
-pnpm test         # vitest run
+npm install
+npm run dev       # ts-node watch
+npm test          # vitest run
 ```
 
 ---

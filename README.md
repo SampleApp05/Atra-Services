@@ -1,6 +1,6 @@
 # ATRA — Backend Monorepo
 
-A pnpm workspace + Turborepo monorepo for the ATRA platform backend.  
+An npm workspaces + Turborepo monorepo for the ATRA platform backend.  
 All services are TypeScript-first, ESM, and share common packages via workspace aliases.
 
 ---
@@ -20,20 +20,20 @@ All services are TypeScript-first, ESM, and share common packages via workspace 
 
 ```bash
 # 1. Install all dependencies
-pnpm install
+npm install
 
 # 2. Build all packages and apps
-pnpm turbo build
+npm run build
 
 # 3. Run all tests
-pnpm turbo test
+npm test
 ```
 
 To run a single app in development mode:
 
 ```bash
-pnpm --filter @atra/auth-service dev
-pnpm --filter @atra/market-service dev
+npm run dev -w @atra/auth-service
+npm run dev -w @atra/market-service
 ```
 
 ---
@@ -201,14 +201,14 @@ Zero-dependency utility functions for pagination cursors, address normalisation,
 
 ```bash
 # Run all tests across the monorepo
-pnpm turbo test
+npm test
 
 # Run tests for a specific app
-pnpm --filter @atra/auth-service test
-pnpm --filter @atra/market-service test
+npm test -w @atra/auth-service
+npm test -w @atra/market-service
 
 # Watch mode
-pnpm --filter @atra/auth-service test -- --watch
+npm test -w @atra/auth-service -- --watch
 ```
 
 | App / Package | Tests | Framework |
