@@ -147,3 +147,7 @@ vite.config.ts.timestamp-*
 
 # Prompt Files
 prompts/
+
+# Local AI agent skills
+.agents/skills/
+.claude/skills/
