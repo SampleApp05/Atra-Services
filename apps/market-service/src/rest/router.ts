@@ -35,7 +35,7 @@ export function createRouter(
 
   /**
    * GET /prices?symbols=BTCUSDT,ETHUSDT
-   * Returns current tickers for the requested symbols.
+   * Returns each requested ticker with its cache freshness.
    */
   router.get('/prices', async (req: Request, res: Response) => {
     const raw = req.query['symbols']
@@ -56,8 +56,8 @@ export function createRouter(
     }
 
     try {
-      const tickers = await priceService.getTickers(symbols)
-      res.json(tickers)
+      const results = await priceService.getTickers(symbols)
+      res.json(results)
     } catch (err) {
       res.status(502).json({ error: 'Failed to fetch price data from upstream provider' })
     }

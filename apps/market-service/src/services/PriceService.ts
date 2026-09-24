@@ -5,6 +5,11 @@ import type { PriceCache } from '../cache/PriceCache.js'
 import type { BinanceRestAdapter } from '../adapters/BinanceRestAdapter.js'
 import { Config } from '../config/index.js'
 
+export type PriceResult = {
+  ticker: MarketTicker
+  freshness: 'fresh' | 'stale'
+}
+
 // MARK: - Service
 
 export class PriceService {
@@ -25,13 +30,13 @@ export class PriceService {
   // MARK: Public API
 
   /**
-   * Retrieves a single ticker using stale-while-revalidate strategy.
+   * Retrieves one ticker with its cache freshness using stale-while-revalidate.
    *
    * Case A — Fresh cache hit  : return immediately
    * Case B — Stale cache hit  : return stale, refresh async
    * Case C — Cache miss       : fetch from Binance, cache, return
    */
-  async getTicker(symbol: string): Promise<MarketTicker> {
+  async getTicker(symbol: string): Promise<PriceResult> {
     const upperSymbol = symbol.toUpperCase()
     const entry = this.cache.get(upperSymbol)
     const now = Date.now()
@@ -41,22 +46,23 @@ export class PriceService {
 
       if (isStale === false) {
         // Case A — Fresh
-        return entry.ticker
+        return { ticker: entry.ticker, freshness: 'fresh' }
       }
 
       // Case B — Stale: return immediately and refresh in background
       this.refreshAsync(upperSymbol)
-      return entry.ticker
+      return { ticker: entry.ticker, freshness: 'stale' }
     }
 
     // Case C — Cache miss
-    return this.fetchAndCache(upperSymbol)
+    const ticker = await this.fetchAndCache(upperSymbol)
+    return { ticker, freshness: 'fresh' }
   }
 
   /**
-   * Retrieves tickers for multiple symbols concurrently.
+   * Retrieves freshness-aware results for multiple symbols concurrently.
    */
-  async getTickers(symbols: string[]): Promise<MarketTicker[]> {
+  async getTickers(symbols: string[]): Promise<PriceResult[]> {
     return Promise.all(symbols.map((s) => this.getTicker(s)))
   }
 
