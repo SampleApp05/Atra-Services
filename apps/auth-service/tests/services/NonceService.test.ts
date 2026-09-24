@@ -157,4 +157,57 @@ describe('NonceService', () => {
       )
     })
   })
+
+  // MARK: consume
+
+  describe('consume', () => {
+    it('atomically consumes a matching nonce via a single conditional UPDATE', async () => {
+      const consumedRow = {
+        id: 'challenge-1',
+        walletId: 'wallet-1',
+        nonce: 'abc',
+        purpose: 'LOGIN',
+        expiresAt: new Date(Date.now() + 60_000),
+        usedAt: new Date(),
+        createdAt: new Date(),
+      }
+
+      const returning = vi.fn().mockResolvedValue([consumedRow])
+      const where = vi.fn(() => ({ returning }))
+      const set = vi.fn(() => ({ where }))
+      ;(db.update as ReturnType<typeof vi.fn>).mockReturnValue({ set })
+
+      const result = await service.consume('wallet-1', 'abc', 'LOGIN')
+
+      expect(db.update).toHaveBeenCalled()
+      expect(set).toHaveBeenCalledWith(
+        expect.objectContaining({ usedAt: expect.any(Date) })
+      )
+      expect(result).toEqual(consumedRow)
+    })
+
+    it('returns null when no unused, unexpired, matching nonce exists', async () => {
+      const returning = vi.fn().mockResolvedValue([])
+      const where = vi.fn(() => ({ returning }))
+      const set = vi.fn(() => ({ where }))
+      ;(db.update as ReturnType<typeof vi.fn>).mockReturnValue({ set })
+
+      const result = await service.consume('wallet-1', 'abc', 'LOGIN')
+
+      expect(result).toBeNull()
+    })
+
+    it('runs the conditional update against a caller-supplied executor (e.g. a transaction) instead of the default db', async () => {
+      const returning = vi.fn().mockResolvedValue([{ id: 'challenge-1' }])
+      const where = vi.fn(() => ({ returning }))
+      const set = vi.fn(() => ({ where }))
+      const txUpdate = vi.fn(() => ({ set }))
+      const tx = { update: txUpdate } as unknown as import('@atra/database').Db
+
+      await service.consume('wallet-1', 'abc', 'LOGIN', tx)
+
+      expect(txUpdate).toHaveBeenCalled()
+      expect(db.update).not.toHaveBeenCalled()
+    })
+  })
 })

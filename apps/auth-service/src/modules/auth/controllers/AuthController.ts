@@ -58,13 +58,12 @@ export class AuthController {
   /**
    * POST /auth/revoke
    * Body: { sessionId: string }
-   * Requires: authenticated request — accountId injected by middleware (Phase 2.9).
-   * For now, reads accountId from body until middleware is wired.
+   * Auth: JWT — accountId comes from the authenticated session (req.auth),
+   *       never from the request body.
    */
   revoke = async (req: Request, res: Response): Promise<void> => {
-    const { sessionId, accountId } = req.body as {
+    const { sessionId } = req.body as {
       sessionId?: string
-      accountId?: string
     }
 
     if (!sessionId || typeof sessionId !== 'string') {
@@ -72,8 +71,9 @@ export class AuthController {
       return
     }
 
-    if (!accountId || typeof accountId !== 'string') {
-      res.status(400).json({ error: 'accountId is required' })
+    const accountId = req.auth?.accountId
+    if (!accountId) {
+      res.status(401).json({ error: 'UNAUTHORIZED' })
       return
     }
 

@@ -1,6 +1,6 @@
-import { and, eq, isNull, gt } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { Db, NoncePurpose } from '@atra/database'
-import { wallets, nonceChallenges, accountWalletRoles, accounts, sessions, auditLogs } from '@atra/database'
+import { wallets, accountWalletRoles, accounts, sessions, auditLogs } from '@atra/database'
 import type { NonceService } from '../../identity/services/NonceService.js'
 import type { SignatureService } from '../../identity/services/SignatureService.js'
 
@@ -64,32 +64,20 @@ export class RecoveryService {
 
     await this.assertRecoveryRole(accountId, wallet.id)
 
-    const now = new Date()
     const purpose = 'RECOVERY' as NoncePurpose
-
-    const challenge = await this.db
-      .select()
-      .from(nonceChallenges)
-      .where(and(
-        eq(nonceChallenges.walletId, wallet.id),
-        eq(nonceChallenges.nonce, nonce),
-        eq(nonceChallenges.purpose, purpose),
-        isNull(nonceChallenges.usedAt),
-        gt(nonceChallenges.expiresAt, now)
-      ))
-      .limit(1)
-      .then((r: typeof nonceChallenges.$inferSelect[]) => r[0] ?? null)
-
-    if (!challenge) throw new Error('INVALID_OR_EXPIRED_NONCE')
 
     const message = this.signatureService.buildChallengeMessage(nonce, purpose)
     if (!this.signatureService.verifySignature(message, signature, wallet.address)) {
       throw new Error('SIGNATURE_MISMATCH')
     }
 
-    await this.nonceService.markUsed(challenge.id)
-
+    // Atomically consume the nonce and swap ownership in the same
+    // transaction — the nonce is only ever burned together with the
+    // recovery it authorizes.
     await this.db.transaction(async (tx) => {
+      const consumed = await this.nonceService.consume(wallet.id, nonce, purpose, tx)
+      if (!consumed) throw new Error('INVALID_OR_EXPIRED_NONCE')
+
       // Capture the current OWNER wallet(s) before they are replaced
       const previousOwnerRows = await tx
         .select()

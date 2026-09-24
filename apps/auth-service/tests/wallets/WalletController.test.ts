@@ -13,23 +13,21 @@ function mockRes() {
   return res as unknown as Response
 }
 
-function mockReq(body: Record<string, unknown> = {}): Request {
-  return { body, headers: {}, socket: { remoteAddress: '1.2.3.4' } } as unknown as Request
+const AUTHENTICATED = { accountId: 'acc-1', sessionId: 'sess-1', walletId: 'wid-1', roles: ['OWNER'], chainId: 1 }
+
+function mockReq(body: Record<string, unknown> = {}, auth: Record<string, unknown> | null = AUTHENTICATED): Request {
+  return { body, headers: {}, socket: { remoteAddress: '1.2.3.4' }, auth } as unknown as Request
 }
 
 const VALID_CHALLENGE_BODY = {
   newAddress: '0xabc',
   chainId: 1,
-  accountId: 'acc-1',
-  walletId: 'wid-1',
 }
 
 const VALID_VERIFY_BODY = {
   newAddress: '0xabc',
   nonce: 'deadbeef',
   signature: '0xsig',
-  accountId: 'acc-1',
-  walletId: 'wid-1',
 }
 
 // MARK: - Tests
@@ -64,18 +62,21 @@ describe('WalletController', () => {
       expect(res.status).toHaveBeenCalledWith(400)
     })
 
-    it('returns 400 when accountId is missing', async () => {
-      const { accountId: _, ...body } = VALID_CHALLENGE_BODY
+    it('returns 401 when there is no authenticated session', async () => {
       const res = mockRes()
-      await controller.linkChallenge(mockReq(body), res)
-      expect(res.status).toHaveBeenCalledWith(400)
+      await controller.linkChallenge(mockReq(VALID_CHALLENGE_BODY, null), res)
+      expect(res.status).toHaveBeenCalledWith(401)
     })
 
-    it('returns 400 when walletId is missing', async () => {
-      const { walletId: _, ...body } = VALID_CHALLENGE_BODY
+    it('ignores accountId/walletId supplied in the body and uses the session actor', async () => {
       const res = mockRes()
-      await controller.linkChallenge(mockReq(body), res)
-      expect(res.status).toHaveBeenCalledWith(400)
+      await controller.linkChallenge(
+        mockReq({ ...VALID_CHALLENGE_BODY, accountId: 'attacker-acc', walletId: 'attacker-wid' }),
+        res
+      )
+      expect(walletLinkingService.createLinkChallenge).toHaveBeenCalledWith(
+        AUTHENTICATED.accountId, AUTHENTICATED.walletId, VALID_CHALLENGE_BODY.newAddress, VALID_CHALLENGE_BODY.chainId
+      )
     })
 
     it('returns 200 with challengeId and message on success', async () => {
@@ -135,6 +136,25 @@ describe('WalletController', () => {
       const res = mockRes()
       await controller.linkVerify(mockReq(body), res)
       expect(res.status).toHaveBeenCalledWith(400)
+    })
+
+    it('returns 401 when there is no authenticated session', async () => {
+      const res = mockRes()
+      await controller.linkVerify(mockReq(VALID_VERIFY_BODY, null), res)
+      expect(res.status).toHaveBeenCalledWith(401)
+    })
+
+    it('ignores accountId/walletId supplied in the body and uses the session actor', async () => {
+      const res = mockRes()
+      await controller.linkVerify(
+        mockReq({ ...VALID_VERIFY_BODY, accountId: 'attacker-acc', walletId: 'attacker-wid' }),
+        res
+      )
+      expect(walletLinkingService.verifyAndLink).toHaveBeenCalledWith(
+        AUTHENTICATED.accountId, AUTHENTICATED.walletId,
+        VALID_VERIFY_BODY.newAddress, VALID_VERIFY_BODY.nonce, VALID_VERIFY_BODY.signature,
+        AUTHENTICATED.chainId
+      )
     })
 
     it('returns 200 with walletId and role on success', async () => {

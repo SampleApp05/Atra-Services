@@ -42,15 +42,20 @@ function mockAccount() {
 
 // MARK: - DB Mock Builder
 
+/**
+ * verifyAndProvision now consumes the nonce transactionally (via the mocked
+ * nonceService.consume — no db.select is involved for that step). The
+ * select sequence covers only: 1=wallet lookup, 2=existing-role check
+ * (inside tx), 3=account lookup for an already-provisioned account
+ * (inside tx, only reached when an existing role is found).
+ */
 function buildDb({
   walletRows = [mockWallet()],
-  challengeRows = [mockChallenge()],
+  existingRoleRows = [] as unknown[],
   accountRows = [mockAccount()],
-  roleRows = [] as unknown[],
 } = {}) {
-  // Each select().from().where().limit() returns the appropriate rows
   let selectCallCount = 0
-  const selectSequence = [walletRows, challengeRows, roleRows, accountRows]
+  const selectSequence = [walletRows, existingRoleRows, accountRows]
 
   const limit = vi.fn().mockImplementation(() => {
     return Promise.resolve(selectSequence[selectCallCount++] ?? [])
@@ -62,11 +67,7 @@ function buildDb({
   const values = vi.fn(() => ({ returning }))
   const insert = vi.fn(() => ({ values }))
 
-  const setChain = { where: vi.fn().mockResolvedValue(undefined) }
-  const set = vi.fn(() => setChain)
-  const update = vi.fn(() => ({ set }))
-
-  // transaction: call the callback with same db interface
+  // transaction: call the callback with a tx exposing the same select/insert surface
   const transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => unknown) => {
     const txReturning = vi.fn().mockResolvedValue([mockAccount()])
     const txValues = vi.fn(() => ({ returning: txReturning }))
@@ -77,7 +78,6 @@ function buildDb({
   return {
     select: vi.fn(() => ({ from })),
     insert,
-    update,
     transaction,
     // expose internals for assertions
     _limit: limit,
@@ -103,6 +103,7 @@ describe('AccountService', () => {
       create: vi.fn().mockResolvedValue(mockChallenge()),
       find: vi.fn().mockResolvedValue(mockChallenge()),
       markUsed: vi.fn().mockResolvedValue(undefined),
+      consume: vi.fn().mockResolvedValue(mockChallenge()),
     } as unknown as NonceService
 
     signatureService = {
@@ -164,8 +165,9 @@ describe('AccountService', () => {
       ).rejects.toThrow('WALLET_NOT_FOUND')
     })
 
-    it('throws INVALID_OR_EXPIRED_NONCE when no valid challenge', async () => {
-      const db = buildDb({ challengeRows: [] })
+    it('throws INVALID_OR_EXPIRED_NONCE when the atomic consume finds no matching nonce', async () => {
+      ;(nonceService.consume as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+      const db = buildDb()
       const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await expect(
@@ -183,17 +185,17 @@ describe('AccountService', () => {
       ).rejects.toThrow('SIGNATURE_MISMATCH')
     })
 
-    it('marks nonce as used after valid signature', async () => {
+    it('consumes the nonce transactionally after a valid signature', async () => {
       const db = buildDb()
       const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
 
-      expect(nonceService.markUsed).toHaveBeenCalledWith(CHALLENGE_ID)
+      expect(nonceService.consume).toHaveBeenCalledWith(WALLET_ID, NONCE, 'LOGIN', expect.anything())
     })
 
-    it('runs transaction when no existing roles', async () => {
-      const db = buildDb({ roleRows: [] })
+    it('runs the consume + provisioning inside a single transaction when no existing roles', async () => {
+      const db = buildDb({ existingRoleRows: [] })
       const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
@@ -201,12 +203,25 @@ describe('AccountService', () => {
       expect(db.transaction).toHaveBeenCalled()
     })
 
-    it('skips transaction when account already exists', async () => {
-      const db = buildDb({ roleRows: [{ id: 'role-1' }] })
+    it('runs the consume + account lookup inside the same transaction when the account already exists', async () => {
+      const db = buildDb({ existingRoleRows: [{ id: 'role-1' }] })
       const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
 
       await service.verifyAndProvision(ADDRESS, NONCE, 'sig', CHAIN_ID)
 
+      expect(db.transaction).toHaveBeenCalled()
+    })
+
+    it('never consumes the nonce before the signature has been verified', async () => {
+      ;(signatureService.verifySignature as ReturnType<typeof vi.fn>).mockReturnValue(false)
+      const db = buildDb()
+      const service = new AccountService(db as unknown as import('@atra/database').Db, nonceService, signatureService, mockChainService as any)
+
+      await expect(
+        service.verifyAndProvision(ADDRESS, NONCE, 'badsig', CHAIN_ID)
+      ).rejects.toThrow('SIGNATURE_MISMATCH')
+
+      expect(nonceService.consume).not.toHaveBeenCalled()
       expect(db.transaction).not.toHaveBeenCalled()
     })
   })
