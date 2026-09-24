@@ -5,6 +5,7 @@ import { randomBytes } from 'crypto'
 import type { Db, NewNonceChallenge, NonceChallenge, NoncePurpose } from '@atra/database'
 import { nonceChallenges } from '@atra/database'
 import { eq, and, isNull, gt } from 'drizzle-orm'
+import { NonceRepository, type NonceExecutor } from '../repositories/NonceRepository.js'
 
 // MARK: - Constants
 // Override via .env: NONCE_TTL_MINUTES (integer, default 5)
@@ -18,11 +19,13 @@ export class NonceService {
   // MARK: Private State
 
   private readonly db: Db
+  private readonly repository: NonceRepository
 
   // MARK: Init
 
   constructor(db: Db) {
     this.db = db
+    this.repository = new NonceRepository(db)
   }
 
   // MARK: Public API
@@ -87,5 +90,22 @@ export class NonceService {
       .update(nonceChallenges)
       .set({ usedAt: new Date() })
       .where(eq(nonceChallenges.id, id))
+  }
+
+  /**
+   * Single conditional, transactional consume primitive shared by every
+   * nonce-gated flow (login, wallet linking, role/ownership changes,
+   * recovery). Validates and marks the nonce used in one atomic UPDATE,
+   * returning the consumed row or null if it was missing, expired, or
+   * already used. Pass the caller's transaction as `executor` so the
+   * consume is atomic with the effect it authorizes.
+   */
+  async consume(
+    walletId: string,
+    nonce: string,
+    purpose: NoncePurpose,
+    executor: NonceExecutor = this.db
+  ): Promise<NonceChallenge | null> {
+    return this.repository.consume(executor, walletId, nonce, purpose)
   }
 }

@@ -13,8 +13,12 @@ function mockRes() {
   return res as unknown as Response
 }
 
-function mockReq(body: Record<string, unknown> = {}, headers: Record<string, string> = {}): Request {
-  return { body, headers, socket: { remoteAddress: '1.2.3.4' } } as unknown as Request
+function mockReq(
+  body: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+  auth: Record<string, unknown> | undefined = undefined
+): Request {
+  return { body, headers, socket: { remoteAddress: '1.2.3.4' }, auth } as unknown as Request
 }
 
 const TOKENS = {
@@ -23,6 +27,8 @@ const TOKENS = {
   sessionId: 'ses-1',
   accountId: 'acc-1',
 }
+
+const AUTHENTICATED = { accountId: 'acc-1', sessionId: 'ses-1', walletId: 'wid-1', roles: ['OWNER'], chainId: 1 }
 
 // MARK: - Tests
 
@@ -77,19 +83,28 @@ describe('AuthController', () => {
   describe('POST /auth/revoke', () => {
     it('returns 400 when sessionId is missing', async () => {
       const res = mockRes()
-      await controller.revoke(mockReq({ accountId: 'acc-1' }), res)
+      await controller.revoke(mockReq({}, {}, AUTHENTICATED), res)
       expect(res.status).toHaveBeenCalledWith(400)
     })
 
-    it('returns 400 when accountId is missing', async () => {
+    it('returns 401 when there is no authenticated session', async () => {
       const res = mockRes()
-      await controller.revoke(mockReq({ sessionId: 'ses-1' }), res)
-      expect(res.status).toHaveBeenCalledWith(400)
+      await controller.revoke(mockReq({ sessionId: 'ses-1' }, {}, undefined), res)
+      expect(res.status).toHaveBeenCalledWith(401)
+    })
+
+    it('derives accountId from the authenticated session, ignoring the body', async () => {
+      const res = mockRes()
+      await controller.revoke(
+        mockReq({ sessionId: 'ses-1', accountId: 'attacker-acc' }, {}, AUTHENTICATED),
+        res
+      )
+      expect(sessionService.revoke).toHaveBeenCalledWith('ses-1', AUTHENTICATED.accountId)
     })
 
     it('returns 200 on success', async () => {
       const res = mockRes()
-      await controller.revoke(mockReq({ sessionId: 'ses-1', accountId: 'acc-1' }), res)
+      await controller.revoke(mockReq({ sessionId: 'ses-1' }, {}, AUTHENTICATED), res)
       expect(res.status).toHaveBeenCalledWith(200)
       expect(res.json).toHaveBeenCalledWith({ revoked: true })
     })
@@ -99,14 +114,14 @@ describe('AuthController', () => {
         new Error('SESSION_NOT_FOUND')
       )
       const res = mockRes()
-      await controller.revoke(mockReq({ sessionId: 'ses-1', accountId: 'acc-1' }), res)
+      await controller.revoke(mockReq({ sessionId: 'ses-1' }, {}, AUTHENTICATED), res)
       expect(res.status).toHaveBeenCalledWith(404)
     })
 
     it('returns 500 on unexpected error', async () => {
       ;(sessionService.revoke as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('DB'))
       const res = mockRes()
-      await controller.revoke(mockReq({ sessionId: 'ses-1', accountId: 'acc-1' }), res)
+      await controller.revoke(mockReq({ sessionId: 'ses-1' }, {}, AUTHENTICATED), res)
       expect(res.status).toHaveBeenCalledWith(500)
     })
   })

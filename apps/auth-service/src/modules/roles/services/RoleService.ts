@@ -2,13 +2,17 @@
 // OWNER-only operations requiring dual verification:
 // the OWNER signs approval AND the target wallet signs acceptance.
 
-import { and, eq, isNull, gt, ne } from 'drizzle-orm'
+import { and, eq, isNull, ne } from 'drizzle-orm'
 import type { Db, NoncePurpose, WalletRole } from '@atra/database'
-import { wallets, nonceChallenges, accountWalletRoles, auditLogs } from '@atra/database'
+import { wallets, accountWalletRoles, accounts, sessions, auditLogs } from '@atra/database'
 import type { NonceService } from '../../identity/services/NonceService.js'
 import type { SignatureService } from '../../identity/services/SignatureService.js'
 
 // MARK: - Types
+
+// The tx passed into `db.transaction(async (tx) => ...)` — derived from Db
+// itself so it stays in sync with whatever transaction type Db exposes.
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
 
 export type RoleOperation =
   | 'GRANT_AUTH'
@@ -103,15 +107,6 @@ export class RoleService {
     if (!target) throw new Error('TARGET_WALLET_NOT_FOUND')
 
     const purpose = noncePurposeFor(operation)
-    const now = new Date()
-
-    // Validate OWNER challenge
-    const ownerChallenge = await this.findValidChallenge(ownerWalletId, ownerNonce, purpose, now)
-    if (!ownerChallenge) throw new Error('INVALID_OWNER_NONCE')
-
-    // Validate TARGET challenge
-    const targetChallenge = await this.findValidChallenge(target.id, targetNonce, purpose, now)
-    if (!targetChallenge) throw new Error('INVALID_TARGET_NONCE')
 
     // Verify OWNER signature
     const ownerMessage = this.signatureService.buildChallengeMessage(ownerNonce, purpose)
@@ -125,134 +120,164 @@ export class RoleService {
       throw new Error('TARGET_SIGNATURE_MISMATCH')
     }
 
-    // Consume both nonces immediately (single-use)
-    await this.nonceService.markUsed(ownerChallenge.id)
-    await this.nonceService.markUsed(targetChallenge.id)
+    // Atomically consume both nonces and apply the operation in a single
+    // transaction — the nonces are only ever burned together with the
+    // role/ownership change they authorize.
+    await this.db.transaction(async (tx) => {
+      const ownerConsumed = await this.nonceService.consume(ownerWalletId, ownerNonce, purpose, tx)
+      if (!ownerConsumed) throw new Error('INVALID_OWNER_NONCE')
 
-    // Apply the operation atomically
-    await this.applyOperation(accountId, ownerWalletId, target.id, operation)
+      const targetConsumed = await this.nonceService.consume(target.id, targetNonce, purpose, tx)
+      if (!targetConsumed) throw new Error('INVALID_TARGET_NONCE')
+
+      await this.applyOperation(tx, accountId, ownerWalletId, target.id, operation)
+    })
   }
 
   // MARK: - Private: Operations
 
   private async applyOperation(
+    tx: Tx,
     accountId: string,
     ownerWalletId: string,
     targetWalletId: string,
     operation: RoleOperation
   ): Promise<void> {
-    await this.db.transaction(async (tx) => {
-      switch (operation) {
-
-        case 'GRANT_AUTH': {
-          // Idempotent — skip if role already exists
-          const existing = await tx
-            .select()
-            .from(accountWalletRoles)
-            .where(and(
-              eq(accountWalletRoles.accountId, accountId),
-              eq(accountWalletRoles.walletId, targetWalletId),
-              eq(accountWalletRoles.role, 'AUTH')
-            ))
-          if (existing.length === 0) {
-            await tx.insert(accountWalletRoles).values({
-              accountId, walletId: targetWalletId, role: 'AUTH', grantedByWalletId: ownerWalletId,
-            })
-          }
-          await tx.insert(auditLogs).values({
-            accountId, actorWalletId: ownerWalletId, action: 'ROLE_GRANTED',
-            metadata: { targetWalletId, role: 'AUTH' },
-          })
-          break
-        }
-
-        case 'REVOKE_AUTH': {
-          await tx
-            .delete(accountWalletRoles)
-            .where(and(
-              eq(accountWalletRoles.accountId, accountId),
-              eq(accountWalletRoles.walletId, targetWalletId),
-              eq(accountWalletRoles.role, 'AUTH')
-            ))
-          await tx.insert(auditLogs).values({
-            accountId, actorWalletId: ownerWalletId, action: 'ROLE_REVOKED',
-            metadata: { targetWalletId, role: 'AUTH' },
-          })
-          break
-        }
-
-        case 'ASSIGN_RECOVERY': {
-          // Enforce max 1 RECOVERY per account
-          const existing = await tx
-            .select()
-            .from(accountWalletRoles)
-            .where(and(
-              eq(accountWalletRoles.accountId, accountId),
-              eq(accountWalletRoles.role, 'RECOVERY')
-            ))
-          if (existing.length > 0) throw new Error('RECOVERY_WALLET_ALREADY_ASSIGNED')
-
+    switch (operation) {
+      case 'GRANT_AUTH': {
+        // Idempotent — skip if role already exists
+        const existing = await tx
+          .select()
+          .from(accountWalletRoles)
+          .where(and(
+            eq(accountWalletRoles.accountId, accountId),
+            eq(accountWalletRoles.walletId, targetWalletId),
+            eq(accountWalletRoles.role, 'AUTH')
+          ))
+        if (existing.length === 0) {
           await tx.insert(accountWalletRoles).values({
-            accountId, walletId: targetWalletId, role: 'RECOVERY', grantedByWalletId: ownerWalletId,
+            accountId, walletId: targetWalletId, role: 'AUTH', grantedByWalletId: ownerWalletId,
           })
-          await tx.insert(auditLogs).values({
-            accountId, actorWalletId: ownerWalletId, action: 'RECOVERY_ASSIGNED',
-            metadata: { targetWalletId },
-          })
-          break
         }
-
-        case 'TRANSFER_OWNER': {
-          // Cannot transfer to self
-          if (targetWalletId === ownerWalletId) throw new Error('CANNOT_TRANSFER_TO_SELF')
-
-          // Remove OWNER from current owner
-          await tx
-            .delete(accountWalletRoles)
-            .where(and(
-              eq(accountWalletRoles.accountId, accountId),
-              eq(accountWalletRoles.walletId, ownerWalletId),
-              eq(accountWalletRoles.role, 'OWNER')
-            ))
-
-          // Grant OWNER to target
-          await tx.insert(accountWalletRoles).values({
-            accountId, walletId: targetWalletId, role: 'OWNER', grantedByWalletId: ownerWalletId,
-          })
-          await tx.insert(auditLogs).values({
-            accountId, actorWalletId: ownerWalletId, action: 'OWNER_TRANSFERRED',
-            metadata: { fromWalletId: ownerWalletId, toWalletId: targetWalletId },
-          })
-          break
-        }
-
-        case 'REMOVE_WALLET': {
-          // Cannot remove the OWNER wallet
-          const ownerCheck = await tx
-            .select()
-            .from(accountWalletRoles)
-            .where(and(
-              eq(accountWalletRoles.accountId, accountId),
-              eq(accountWalletRoles.walletId, targetWalletId),
-              eq(accountWalletRoles.role, 'OWNER')
-            ))
-          if (ownerCheck.length > 0) throw new Error('CANNOT_REMOVE_OWNER_WALLET')
-
-          // Delete all roles for this wallet in this account
-          await tx
-            .delete(accountWalletRoles)
-            .where(and(
-              eq(accountWalletRoles.accountId, accountId),
-              eq(accountWalletRoles.walletId, targetWalletId)
-            ))
-          await tx.insert(auditLogs).values({
-            accountId, actorWalletId: ownerWalletId, action: 'WALLET_REMOVED',
-            metadata: { removedWalletId: targetWalletId },
-          })
-          break
-        }
+        await tx.insert(auditLogs).values({
+          accountId, actorWalletId: ownerWalletId, action: 'ROLE_GRANTED',
+          metadata: { targetWalletId, role: 'AUTH' },
+        })
+        break
       }
-    })
+
+      case 'REVOKE_AUTH': {
+        await tx
+          .delete(accountWalletRoles)
+          .where(and(
+            eq(accountWalletRoles.accountId, accountId),
+            eq(accountWalletRoles.walletId, targetWalletId),
+            eq(accountWalletRoles.role, 'AUTH')
+          ))
+
+        // Loss of the authorizing AUTH role invalidates that wallet's sessions
+        await tx
+          .update(sessions)
+          .set({ revokedAt: new Date() })
+          .where(and(
+            eq(sessions.walletId, targetWalletId),
+            isNull(sessions.revokedAt)
+          ))
+
+        await tx.insert(auditLogs).values({
+          accountId, actorWalletId: ownerWalletId, action: 'ROLE_REVOKED',
+          metadata: { targetWalletId, role: 'AUTH' },
+        })
+        break
+      }
+
+      case 'ASSIGN_RECOVERY': {
+        // Enforce max 1 RECOVERY per account
+        const existing = await tx
+          .select()
+          .from(accountWalletRoles)
+          .where(and(
+            eq(accountWalletRoles.accountId, accountId),
+            eq(accountWalletRoles.role, 'RECOVERY')
+          ))
+        if (existing.length > 0) throw new Error('RECOVERY_WALLET_ALREADY_ASSIGNED')
+
+        await tx.insert(accountWalletRoles).values({
+          accountId, walletId: targetWalletId, role: 'RECOVERY', grantedByWalletId: ownerWalletId,
+        })
+        await tx.insert(auditLogs).values({
+          accountId, actorWalletId: ownerWalletId, action: 'RECOVERY_ASSIGNED',
+          metadata: { targetWalletId },
+        })
+        break
+      }
+
+      case 'TRANSFER_OWNER': {
+        // Cannot transfer to self
+        if (targetWalletId === ownerWalletId) throw new Error('CANNOT_TRANSFER_TO_SELF')
+
+        // Remove OWNER from current owner
+        await tx
+          .delete(accountWalletRoles)
+          .where(and(
+            eq(accountWalletRoles.accountId, accountId),
+            eq(accountWalletRoles.walletId, ownerWalletId),
+            eq(accountWalletRoles.role, 'OWNER')
+          ))
+
+        // Grant OWNER to target
+        await tx.insert(accountWalletRoles).values({
+          accountId, walletId: targetWalletId, role: 'OWNER', grantedByWalletId: ownerWalletId,
+        })
+
+        // Keep the canonical owner reference in sync with the OWNER association
+        await tx
+          .update(accounts)
+          .set({ ownerWalletId: targetWalletId })
+          .where(eq(accounts.id, accountId))
+
+        // Ownership transfer invalidates the previous owner's sessions
+        await tx
+          .update(sessions)
+          .set({ revokedAt: new Date() })
+          .where(and(
+            eq(sessions.walletId, ownerWalletId),
+            isNull(sessions.revokedAt)
+          ))
+
+        await tx.insert(auditLogs).values({
+          accountId, actorWalletId: ownerWalletId, action: 'OWNER_TRANSFERRED',
+          metadata: { fromWalletId: ownerWalletId, toWalletId: targetWalletId },
+        })
+        break
+      }
+
+      case 'REMOVE_WALLET': {
+        // Cannot remove the OWNER wallet
+        const ownerCheck = await tx
+          .select()
+          .from(accountWalletRoles)
+          .where(and(
+            eq(accountWalletRoles.accountId, accountId),
+            eq(accountWalletRoles.walletId, targetWalletId),
+            eq(accountWalletRoles.role, 'OWNER')
+          ))
+        if (ownerCheck.length > 0) throw new Error('CANNOT_REMOVE_OWNER_WALLET')
+
+        // Delete all roles for this wallet in this account
+        await tx
+          .delete(accountWalletRoles)
+          .where(and(
+            eq(accountWalletRoles.accountId, accountId),
+            eq(accountWalletRoles.walletId, targetWalletId)
+          ))
+        await tx.insert(auditLogs).values({
+          accountId, actorWalletId: ownerWalletId, action: 'WALLET_REMOVED',
+          metadata: { removedWalletId: targetWalletId },
+        })
+        break
+      }
+    }
   }
 
   // MARK: - Private: Helpers
@@ -286,25 +311,5 @@ export class RoleService {
       .limit(1)
     if (!row) throw new Error('WALLET_NOT_FOUND')
     return row.address
-  }
-
-  private async findValidChallenge(
-    walletId: string,
-    nonce: string,
-    purpose: NoncePurpose,
-    now: Date
-  ) {
-    const [row] = await this.db
-      .select()
-      .from(nonceChallenges)
-      .where(and(
-        eq(nonceChallenges.walletId, walletId),
-        eq(nonceChallenges.nonce, nonce),
-        eq(nonceChallenges.purpose, purpose),
-        isNull(nonceChallenges.usedAt),
-        gt(nonceChallenges.expiresAt, now)
-      ))
-      .limit(1)
-    return row ?? null
   }
 }

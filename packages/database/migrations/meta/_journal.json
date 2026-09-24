@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790155200000,
+      "tag": "0000_wf0002_session_wallet_role_invariants",
+      "breakpoints": true
+    }
+  ]
+}

@@ -83,28 +83,34 @@ function buildDb(scenario: {
 
 /**
  * buildDbForVerify — used for verifyAndLink tests.
- * Select call order: 1=assertHasRole, 2=wallet lookup, 3=challenge lookup
+ * Select call order: 1=assertHasRole, 2=wallet lookup.
+ * Nonce consumption now happens transactionally via the mocked
+ * nonceService.consume (no db.select is involved for that step), and the
+ * role grant + audit log are written through the transaction's tx.insert.
  */
 function buildDbForVerify(scenario: {
   roles?: unknown[]
   wallet?: unknown | null
-  challenge?: unknown | null
 } = {}) {
   const {
-    roles     = [mockOwnerRole()],
-    wallet    = mockWallet(),
-    challenge = mockChallenge(),
+    roles  = [mockOwnerRole()],
+    wallet = mockWallet(),
   } = scenario
 
   const sequences = [
     roles,
     wallet ? [wallet] : [],
-    challenge ? [challenge] : [],
   ]
   let callIndex = 0
 
-  const insertValuesReturning = vi.fn(() => ({ returning: vi.fn().mockResolvedValue([mockWallet()]) }))
-  const insertFn = vi.fn(() => ({ values: insertValuesReturning }))
+  const txInsertTables: unknown[] = []
+  const transaction = vi.fn().mockImplementation(async (cb: (tx: unknown) => unknown) => {
+    const txInsert = vi.fn((table: unknown) => {
+      txInsertTables.push(table)
+      return { values: vi.fn(() => Promise.resolve(undefined)) }
+    })
+    return cb({ insert: txInsert })
+  })
 
   return {
     select: vi.fn().mockImplementation(() => {
@@ -112,7 +118,9 @@ function buildDbForVerify(scenario: {
       const rows = sequences[idx] ?? []
       return { from: vi.fn(() => ({ where: makeWhere(rows) })) }
     }),
-    insert: insertFn,
+    insert: vi.fn(),
+    transaction,
+    _txInsertTables: txInsertTables,
   }
 }
 
@@ -126,6 +134,7 @@ describe('WalletLinkingService', () => {
     nonceService = {
       create: vi.fn().mockResolvedValue(mockChallenge()),
       markUsed: vi.fn().mockResolvedValue(undefined),
+      consume: vi.fn().mockResolvedValue(mockChallenge()),
     } as unknown as NonceService
 
     signatureService = {
@@ -218,8 +227,9 @@ describe('WalletLinkingService', () => {
       ).rejects.toThrow('WALLET_NOT_FOUND')
     })
 
-    it('throws INVALID_OR_EXPIRED_NONCE when challenge is invalid', async () => {
-      const db = buildDbForVerify({ challenge: null })
+    it('throws INVALID_OR_EXPIRED_NONCE when the atomic consume finds no matching nonce', async () => {
+      ;(nonceService.consume as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+      const db = buildDbForVerify()
       const service = new WalletLinkingService(
         db as unknown as import('@atra/database').Db,
         nonceService, signatureService
@@ -241,6 +251,20 @@ describe('WalletLinkingService', () => {
       ).rejects.toThrow('SIGNATURE_MISMATCH')
     })
 
+    it('never consumes the nonce before the signature has been verified', async () => {
+      ;(signatureService.verifySignature as ReturnType<typeof vi.fn>).mockReturnValue(false)
+      const db = buildDbForVerify()
+      const service = new WalletLinkingService(
+        db as unknown as import('@atra/database').Db,
+        nonceService, signatureService
+      )
+      await expect(
+        service.verifyAndLink(ACCOUNT_ID, CALLER_WID, NEW_ADDRESS, NONCE, '0xbadsig')
+      ).rejects.toThrow('SIGNATURE_MISMATCH')
+      expect(nonceService.consume).not.toHaveBeenCalled()
+      expect(db.transaction).not.toHaveBeenCalled()
+    })
+
     it('grants STANDARD role on success', async () => {
       const db = buildDbForVerify()
       const service = new WalletLinkingService(
@@ -253,24 +277,25 @@ describe('WalletLinkingService', () => {
       expect(result.role).toBe('STANDARD')
     })
 
-    it('marks nonce as used after valid signature', async () => {
+    it('consumes the nonce transactionally after a valid signature', async () => {
       const db = buildDbForVerify()
       const service = new WalletLinkingService(
         db as unknown as import('@atra/database').Db,
         nonceService, signatureService
       )
       await service.verifyAndLink(ACCOUNT_ID, CALLER_WID, NEW_ADDRESS, NONCE, '0xsig')
-      expect(nonceService.markUsed).toHaveBeenCalledWith(CHALLENGE_ID)
+      expect(nonceService.consume).toHaveBeenCalledWith(NEW_WID, NONCE, 'LINK_WALLET', expect.anything())
     })
 
-    it('writes an audit log entry', async () => {
+    it('writes the role grant and audit log inside the same transaction as the nonce consume', async () => {
       const db = buildDbForVerify()
       const service = new WalletLinkingService(
         db as unknown as import('@atra/database').Db,
         nonceService, signatureService
       )
       await service.verifyAndLink(ACCOUNT_ID, CALLER_WID, NEW_ADDRESS, NONCE, '0xsig')
-      expect(db.insert).toHaveBeenCalled()
+      expect(db.transaction).toHaveBeenCalled()
+      expect(db._txInsertTables.length).toBe(2)
     })
   })
 })

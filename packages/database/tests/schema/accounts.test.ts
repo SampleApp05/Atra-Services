@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { getTableName } from 'drizzle-orm'
+import { getTableConfig } from 'drizzle-orm/pg-core'
 import { accounts } from '../../src/schema/accounts.js'
 
 describe('accounts schema', () => {
@@ -39,5 +40,12 @@ describe('accounts schema', () => {
 
   it('owner_wallet_id is not nullable', () => {
     expect(accounts.ownerWalletId.notNull).toBe(true)
+  })
+
+  it('references wallets for owner_wallet_id and recovery_wallet_id', () => {
+    const { foreignKeys } = getTableConfig(accounts)
+    const names = foreignKeys.map((fk) => fk.getName())
+    expect(names).toContain('accounts_owner_wallet_id_wallets_id_fk')
+    expect(names).toContain('accounts_recovery_wallet_id_wallets_id_fk')
   })
 })

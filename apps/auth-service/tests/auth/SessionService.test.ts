@@ -19,6 +19,7 @@ function mockSession(overrides = {}) {
   return {
     id: SESSION_ID,
     accountId: ACCOUNT_ID,
+    walletId: WALLET_ID,
     chainId: CHAIN_ID,
     refreshTokenHash: REFRESH_HASH,
     deviceName: 'iPhone',
@@ -63,6 +64,8 @@ function buildMocks() {
     return vi.fn(() => whereResult)
   }
 
+  const insertValues = vi.fn(() => Promise.resolve())
+
   const db = {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -70,11 +73,11 @@ function buildMocks() {
       })),
     })),
     insert: vi.fn(() => ({
-      values: vi.fn(() => Promise.resolve()),
+      values: insertValues,
     })),
   }
 
-  return { tokenService, sessionRepo, db }
+  return { tokenService, sessionRepo, db, insertValues }
 }
 
 // MARK: - Tests
@@ -83,6 +86,7 @@ describe('SessionService', () => {
   let tokenService: TokenService
   let sessionRepo: SessionRepository
   let db: ReturnType<typeof buildMocks>['db']
+  let insertValues: ReturnType<typeof buildMocks>['insertValues']
   let service: SessionService
 
   beforeEach(() => {
@@ -90,6 +94,7 @@ describe('SessionService', () => {
     tokenService = mocks.tokenService
     sessionRepo  = mocks.sessionRepo
     db           = mocks.db
+    insertValues = mocks.insertValues
     service      = new SessionService(
       db as unknown as import('@atra/database').Db,
       tokenService,
@@ -113,6 +118,13 @@ describe('SessionService', () => {
       await service.create(ACCOUNT_ID, WALLET_ID, CHAIN_ID, 'iPhone', 'mobile', '1.2.3.4')
       expect(sessionRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({ refreshTokenHash: REFRESH_HASH })
+      )
+    })
+
+    it('persists the authenticating wallet on the session', async () => {
+      await service.create(ACCOUNT_ID, WALLET_ID, CHAIN_ID, 'iPhone', 'mobile', '1.2.3.4')
+      expect(sessionRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ walletId: WALLET_ID })
       )
     })
 
@@ -148,6 +160,19 @@ describe('SessionService', () => {
       expect(sessionRepo.revoke).toHaveBeenCalledWith(SESSION_ID)
     })
 
+    it('preserves the original authenticating wallet on the new session, not an arbitrary role row', async () => {
+      const OTHER_WALLET_ID = 'wallet-uuid-other'
+      ;(sessionRepo.findActiveByRefreshHash as ReturnType<typeof vi.fn>).mockResolvedValue(
+        mockSession({ walletId: OTHER_WALLET_ID })
+      )
+
+      await service.refresh(REFRESH_RAW, 'iPhone', 'mobile', '1.2.3.4')
+
+      expect(sessionRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ walletId: OTHER_WALLET_ID })
+      )
+    })
+
     it('throws INVALID_OR_EXPIRED_REFRESH_TOKEN when session not found', async () => {
       ;(sessionRepo.findActiveByRefreshHash as ReturnType<typeof vi.fn>).mockResolvedValue(null)
       await expect(
@@ -162,6 +187,13 @@ describe('SessionService', () => {
     it('revokes the session when caller owns it', async () => {
       await service.revoke(SESSION_ID, ACCOUNT_ID)
       expect(sessionRepo.revoke).toHaveBeenCalledWith(SESSION_ID)
+    })
+
+    it('attributes the audit log to the session wallet, not the account id', async () => {
+      await service.revoke(SESSION_ID, ACCOUNT_ID)
+      expect(insertValues).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'SESSION_REVOKED', actorWalletId: WALLET_ID })
+      )
     })
 
     it('throws SESSION_NOT_FOUND when session belongs to a different account', async () => {

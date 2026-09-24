@@ -11,16 +11,16 @@ export class RecoveryController {
   // POST /recovery/challenge
   challenge = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { accountId, recoveryAddress } = req.body as {
-        accountId: string
+      const { recoveryAddress } = req.body as {
         recoveryAddress: string
       }
-      if (!accountId || !recoveryAddress) {
+      if (!recoveryAddress) {
         res.status(400).json({ error: 'MISSING_FIELDS' })
         return
       }
+      const accountId = req.auth?.accountId
       const chainId = req.auth?.chainId
-      if (!chainId) {
+      if (!accountId || !chainId) {
         res.status(401).json({ error: 'UNAUTHORIZED' })
         return
       }
@@ -38,18 +38,18 @@ export class RecoveryController {
   // POST /recovery/execute
   execute = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { accountId, recoveryAddress, nonce, signature } = req.body as {
-        accountId: string
+      const { recoveryAddress, nonce, signature } = req.body as {
         recoveryAddress: string
         nonce: string
         signature: string
       }
-      if (!accountId || !recoveryAddress || !nonce || !signature) {
+      if (!recoveryAddress || !nonce || !signature) {
         res.status(400).json({ error: 'MISSING_FIELDS' })
         return
       }
+      const accountId = req.auth?.accountId
       const chainId = req.auth?.chainId
-      if (!chainId) {
+      if (!accountId || !chainId) {
         res.status(401).json({ error: 'UNAUTHORIZED' })
         return
       }

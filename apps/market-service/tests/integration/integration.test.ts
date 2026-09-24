@@ -138,10 +138,10 @@ describe('Integration', () => {
   // MARK: REST — /prices
 
   describe('GET /prices', () => {
-    it('returns ticker data for a valid symbol', async () => {
+    it('returns freshness-aware ticker data for a valid symbol', async () => {
       const res = await request(app).get('/prices?symbols=BTCUSDT')
       expect(res.status).toBe(200)
-      expect(res.body).toEqual([btcTicker])
+      expect(res.body).toEqual([{ ticker: btcTicker, freshness: 'fresh' }])
     })
 
     it('returns 400 for missing symbols param', async () => {

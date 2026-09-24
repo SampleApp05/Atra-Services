@@ -1,14 +1,13 @@
 // MARK: - Account Service
 // Orchestrates the challenge/verify flow for new account creation (Phase 2.4).
 
-import { and, eq, isNull, gt } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { Db, Account, Wallet, NoncePurpose } from '@atra/database'
 import {
   wallets,
   accounts,
   accountWalletRoles,
   auditLogs,
-  nonceChallenges,
 } from '@atra/database'
 import { NonceService } from './NonceService.js'
 import { SignatureService } from './SignatureService.js'
@@ -113,54 +112,39 @@ export class AccountService {
 
     if (!wallet) throw new Error('WALLET_NOT_FOUND')
 
-    // 2. Find valid (unexpired, unused) challenge for this wallet
+    // 2. Verify signature
     const purpose: NoncePurpose = 'LOGIN'
-    const now = new Date()
-
-    const [challenge] = await this.db
-      .select()
-      .from(nonceChallenges)
-      .where(
-        and(
-          eq(nonceChallenges.walletId, wallet.id),
-          eq(nonceChallenges.nonce, nonce),
-          eq(nonceChallenges.purpose, purpose),
-          isNull(nonceChallenges.usedAt),
-          gt(nonceChallenges.expiresAt, now)
-        )
-      )
-      .limit(1)
-
-    if (!challenge) throw new Error('INVALID_OR_EXPIRED_NONCE')
-
-    // 3. Verify signature
     const message = this.signatureService.buildChallengeMessage(nonce, purpose)
     if (!this.signatureService.verifySignature(message, signature, normalised)) {
       throw new Error('SIGNATURE_MISMATCH')
     }
 
-    // 4. Consume nonce immediately (single-use)
-    await this.nonceService.markUsed(challenge.id)
-
-    // 5. Check if account already exists for this wallet
-    const existing = await this.db
-      .select()
-      .from(accountWalletRoles)
-      .where(eq(accountWalletRoles.walletId, wallet.id))
-      .limit(1)
-
-    if (existing.length > 0) {
-      // Already provisioned — return existing account
-      const [account] = await this.db
-        .select()
-        .from(accounts)
-        .where(eq(accounts.ownerWalletId, wallet.id))
-        .limit(1)
-      return { wallet, account }
-    }
-
-    // 6. Atomically provision new account
+    // 3. Atomically consume the nonce and provision/lookup the account in the
+    //    same transaction — the nonce is only ever burned together with the
+    //    outcome it authorizes, and concurrent logins for the same nonce can
+    //    never both succeed.
     return this.db.transaction(async (tx) => {
+      const consumed = await this.nonceService.consume(wallet.id, nonce, purpose, tx)
+      if (!consumed) throw new Error('INVALID_OR_EXPIRED_NONCE')
+
+      // Check if account already exists for this wallet
+      const existing = await tx
+        .select()
+        .from(accountWalletRoles)
+        .where(eq(accountWalletRoles.walletId, wallet.id))
+        .limit(1)
+
+      if (existing.length > 0) {
+        // Already provisioned — return existing account
+        const [account] = await tx
+          .select()
+          .from(accounts)
+          .where(eq(accounts.ownerWalletId, wallet.id))
+          .limit(1)
+        return { wallet, account }
+      }
+
+      // Provision new account
       const [account] = await tx
         .insert(accounts)
         .values({ ownerWalletId: wallet.id })

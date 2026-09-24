@@ -9,13 +9,14 @@ const mockService = {
 }
 
 const CHAIN_ID = 11155111
+const AUTH = { accountId: 'acc', sessionId: 'sess', walletId: 'wid', roles: ['OWNER'], chainId: CHAIN_ID }
 
-function buildApp() {
+function buildApp(auth: typeof AUTH | null = AUTH) {
   const app = express()
   app.use(express.json())
   // Fake auth middleware — simulates what authenticate.ts attaches on protected routes
   app.use((req: any, _res: any, next: any) => {
-    req.auth = { accountId: 'acc', sessionId: 'sess', walletId: 'wid', roles: ['OWNER'], chainId: CHAIN_ID }
+    if (auth) req.auth = auth
     next()
   })
   const controller = new RoleController(mockService as any)
@@ -39,25 +40,44 @@ describe('RoleController', () => {
       })
       const res = await request(buildApp())
         .post('/roles/challenge')
-        .send({ accountId: 'acc', walletId: 'wid', targetAddress: '0xtarget' })
+        .send({ targetAddress: '0xtarget' })
       expect(res.status).toBe(200)
       expect(res.body.ownerChallengeId).toBe('oc-1')
       expect(res.body.targetChallengeId).toBe('tc-1')
     })
 
-    it('returns 400 when fields are missing', async () => {
+    it('derives accountId/walletId from the authenticated session, ignoring the body', async () => {
+      mockService.createRoleChallenge.mockResolvedValue({
+        ownerChallengeId: 'oc-1', ownerMessage: 'm', targetChallengeId: 'tc-1', targetMessage: 'm',
+      })
+      await request(buildApp())
+        .post('/roles/challenge')
+        .send({ accountId: 'attacker-acc', walletId: 'attacker-wid', targetAddress: '0xtarget' })
+      expect(mockService.createRoleChallenge).toHaveBeenCalledWith(
+        AUTH.accountId, AUTH.walletId, '0xtarget', CHAIN_ID
+      )
+    })
+
+    it('returns 400 when targetAddress is missing', async () => {
       const res = await request(buildApp())
         .post('/roles/challenge')
-        .send({ accountId: 'acc' })
+        .send({})
       expect(res.status).toBe(400)
       expect(res.body.error).toBe('MISSING_FIELDS')
+    })
+
+    it('returns 401 when there is no authenticated session', async () => {
+      const res = await request(buildApp(null))
+        .post('/roles/challenge')
+        .send({ targetAddress: '0xt' })
+      expect(res.status).toBe(401)
     })
 
     it('returns 403 when NOT_OWNER', async () => {
       mockService.createRoleChallenge.mockRejectedValue(new Error('NOT_OWNER'))
       const res = await request(buildApp())
         .post('/roles/challenge')
-        .send({ accountId: 'acc', walletId: 'wid', targetAddress: '0xt' })
+        .send({ targetAddress: '0xt' })
       expect(res.status).toBe(403)
     })
 
@@ -65,7 +85,7 @@ describe('RoleController', () => {
       mockService.createRoleChallenge.mockRejectedValue(new Error('TARGET_WALLET_NOT_FOUND'))
       const res = await request(buildApp())
         .post('/roles/challenge')
-        .send({ accountId: 'acc', walletId: 'wid', targetAddress: '0xt' })
+        .send({ targetAddress: '0xt' })
       expect(res.status).toBe(404)
     })
   })
@@ -74,7 +94,7 @@ describe('RoleController', () => {
 
   describe('POST /roles/verify', () => {
     const validBody = {
-      accountId: 'acc', walletId: 'wid', targetAddress: '0xt',
+      targetAddress: '0xt',
       operation: 'GRANT_AUTH',
       ownerNonce: 'on', ownerSignature: 'os',
       targetNonce: 'tn', targetSignature: 'ts',
@@ -87,8 +107,21 @@ describe('RoleController', () => {
       expect(res.body.success).toBe(true)
     })
 
+    it('derives accountId/walletId from the authenticated session, ignoring the body', async () => {
+      mockService.verifyAndApply.mockResolvedValue(undefined)
+      await request(buildApp()).post('/roles/verify').send({
+        ...validBody, accountId: 'attacker-acc', walletId: 'attacker-wid',
+      })
+      expect(mockService.verifyAndApply).toHaveBeenCalledWith(
+        AUTH.accountId, AUTH.walletId, validBody.targetAddress, validBody.operation,
+        validBody.ownerNonce, validBody.ownerSignature,
+        validBody.targetNonce, validBody.targetSignature,
+        CHAIN_ID
+      )
+    })
+
     it('returns 400 on missing fields', async () => {
-      const res = await request(buildApp()).post('/roles/verify').send({ accountId: 'acc' })
+      const res = await request(buildApp()).post('/roles/verify').send({})
       expect(res.status).toBe(400)
     })
 
@@ -97,6 +130,11 @@ describe('RoleController', () => {
         .send({ ...validBody, operation: 'MAKE_ADMIN' })
       expect(res.status).toBe(400)
       expect(res.body.error).toBe('INVALID_OPERATION')
+    })
+
+    it('returns 401 when there is no authenticated session', async () => {
+      const res = await request(buildApp(null)).post('/roles/verify').send(validBody)
+      expect(res.status).toBe(401)
     })
 
     it('returns 403 when NOT_OWNER', async () => {

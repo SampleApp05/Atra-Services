@@ -23,6 +23,8 @@ const btcTicker: MarketTicker = {
   ts: 1710000000,
 }
 
+const freshBtcResult = { ticker: btcTicker, freshness: 'fresh' as const }
+
 // MARK: - Helpers
 
 function makeApp(
@@ -46,7 +48,7 @@ describe('REST Router', () => {
 
   beforeEach(() => {
     catalogService = { search: vi.fn().mockReturnValue([btcMeta, ethMeta]) }
-    priceService = { getTickers: vi.fn().mockResolvedValue([btcTicker]) }
+    priceService = { getTickers: vi.fn().mockResolvedValue([freshBtcResult]) }
   })
 
   // MARK: GET /search
@@ -88,13 +90,30 @@ describe('REST Router', () => {
   // MARK: GET /prices
 
   describe('GET /prices', () => {
-    it('returns tickers for valid symbols', async () => {
+    it('returns freshness-aware results for valid symbols', async () => {
       const app = makeApp(catalogService, priceService)
       const res = await request(app).get('/prices?symbols=BTCUSDT')
 
       expect(res.status).toBe(200)
-      expect(res.body).toEqual([btcTicker])
+      expect(res.body).toEqual([freshBtcResult])
       expect(priceService.getTickers).toHaveBeenCalledWith(['BTCUSDT'])
+    })
+
+    it('returns per-result freshness for mixed successful symbols', async () => {
+      const ethTicker = { ...btcTicker, symbol: 'ETHUSDT' }
+      priceService.getTickers = vi.fn().mockResolvedValue([
+        freshBtcResult,
+        { ticker: ethTicker, freshness: 'stale' },
+      ])
+      const app = makeApp(catalogService, priceService)
+
+      const res = await request(app).get('/prices?symbols=BTCUSDT,ETHUSDT')
+
+      expect(res.status).toBe(200)
+      expect(res.body).toEqual([
+        freshBtcResult,
+        { ticker: ethTicker, freshness: 'stale' },
+      ])
     })
 
     it('splits comma-separated symbols and uppercases them', async () => {
@@ -120,13 +139,13 @@ describe('REST Router', () => {
       expect(res.body).toHaveProperty('error')
     })
 
-    it('returns 502 when the price service throws', async () => {
+    it('returns 502 for an unavailable upstream result rather than stale success', async () => {
       priceService.getTickers = vi.fn().mockRejectedValue(new Error('upstream error'))
       const app = makeApp(catalogService, priceService)
       const res = await request(app).get('/prices?symbols=BTCUSDT')
 
       expect(res.status).toBe(502)
-      expect(res.body).toHaveProperty('error')
+      expect(res.body).toEqual({ error: 'Failed to fetch price data from upstream provider' })
     })
   })
 })

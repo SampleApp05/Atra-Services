@@ -23,16 +23,14 @@ export class WalletController {
   /**
    * POST /wallets/link/challenge
    * Body: { newAddress: string, chainId: number }
-   * Auth: JWT — accountId + walletId injected by middleware (Phase 2.9).
-   *       Until then, read from body for testability.
+   * Auth: JWT — accountId + walletId come from the authenticated session
+   *       (req.auth), never from the request body.
    * Returns: { challengeId: string, message: string }
    */
   linkChallenge = async (req: Request, res: Response): Promise<void> => {
-    const { newAddress, chainId, accountId, walletId } = req.body as {
+    const { newAddress, chainId } = req.body as {
       newAddress?: string
       chainId?: number
-      accountId?: string   // TODO: replace with req.auth.accountId in Phase 2.9
-      walletId?: string    // TODO: replace with req.auth.walletId in Phase 2.9
     }
 
     if (!newAddress || typeof newAddress !== 'string') {
@@ -43,12 +41,11 @@ export class WalletController {
       res.status(400).json({ error: 'chainId is required' })
       return
     }
-    if (!accountId || typeof accountId !== 'string') {
-      res.status(400).json({ error: 'accountId is required' })
-      return
-    }
-    if (!walletId || typeof walletId !== 'string') {
-      res.status(400).json({ error: 'walletId is required' })
+
+    const accountId = req.auth?.accountId
+    const walletId = req.auth?.walletId
+    if (!accountId || !walletId) {
+      res.status(401).json({ error: 'UNAUTHORIZED' })
       return
     }
 
@@ -74,16 +71,16 @@ export class WalletController {
 
   /**
    * POST /wallets/link/verify
-   * Body: { newAddress: string, nonce: string, signature: string, accountId: string, walletId: string }
+   * Body: { newAddress: string, nonce: string, signature: string }
+   * Auth: JWT — accountId + walletId come from the authenticated session
+   *       (req.auth), never from the request body.
    * Returns: { walletId: string, role: string }
    */
   linkVerify = async (req: Request, res: Response): Promise<void> => {
-    const { newAddress, nonce, signature, accountId, walletId } = req.body as {
+    const { newAddress, nonce, signature } = req.body as {
       newAddress?: string
       nonce?: string
       signature?: string
-      accountId?: string
-      walletId?: string
     }
 
     if (!newAddress || typeof newAddress !== 'string') {
@@ -98,12 +95,11 @@ export class WalletController {
       res.status(400).json({ error: 'signature is required' })
       return
     }
-    if (!accountId || typeof accountId !== 'string') {
-      res.status(400).json({ error: 'accountId is required' })
-      return
-    }
-    if (!walletId || typeof walletId !== 'string') {
-      res.status(400).json({ error: 'walletId is required' })
+
+    const accountId = req.auth?.accountId
+    const walletId = req.auth?.walletId
+    if (!accountId || !walletId) {
+      res.status(401).json({ error: 'UNAUTHORIZED' })
       return
     }
 

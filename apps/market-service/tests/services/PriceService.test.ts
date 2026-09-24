@@ -52,7 +52,7 @@ describe('PriceService', () => {
 
       const result = await service.getTicker(SYMBOL)
 
-      expect(result).toEqual(ticker)
+      expect(result).toEqual({ ticker, freshness: 'fresh' })
       expect(adapter.fetchTicker).not.toHaveBeenCalled()
     })
 
@@ -62,7 +62,7 @@ describe('PriceService', () => {
 
       const result = await service.getTicker('btcusdt')
 
-      expect(result).toEqual(ticker)
+      expect(result).toEqual({ ticker, freshness: 'fresh' })
       expect(adapter.fetchTicker).not.toHaveBeenCalled()
     })
   })
@@ -77,7 +77,7 @@ describe('PriceService', () => {
 
       const result = await service.getTicker(SYMBOL)
 
-      expect(result).toEqual(staleTicker)
+      expect(result).toEqual({ ticker: staleTicker, freshness: 'stale' })
     })
 
     it('triggers a background refresh when the entry is stale', async () => {
@@ -105,9 +105,15 @@ describe('PriceService', () => {
 
       const result = await service.getTicker(SYMBOL)
 
-      expect(result).toEqual(ticker)
+      expect(result).toEqual({ ticker, freshness: 'fresh' })
       expect(adapter.fetchTicker).toHaveBeenCalledWith(SYMBOL)
       expect(cache.get(SYMBOL)?.ticker).toEqual(ticker)
+    })
+
+    it('rejects when upstream is unavailable instead of returning stale success', async () => {
+      ;(adapter.fetchTicker as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('upstream error'))
+
+      await expect(service.getTicker(SYMBOL)).rejects.toThrow('upstream error')
     })
   })
 
@@ -125,9 +131,9 @@ describe('PriceService', () => {
       ])
 
       expect(adapter.fetchTicker).toHaveBeenCalledOnce()
-      expect(r1).toEqual(ticker)
-      expect(r2).toEqual(ticker)
-      expect(r3).toEqual(ticker)
+      expect(r1).toEqual({ ticker, freshness: 'fresh' })
+      expect(r2).toEqual({ ticker, freshness: 'fresh' })
+      expect(r3).toEqual({ ticker, freshness: 'fresh' })
     })
 
     it('allows a new request after the first in-flight request resolves', async () => {
@@ -155,8 +161,24 @@ describe('PriceService', () => {
       const results = await service.getTickers(['BTCUSDT', 'ETHUSDT'])
 
       expect(results).toHaveLength(2)
-      expect(results[0]).toEqual(btc)
-      expect(results[1]).toEqual(eth)
+      expect(results).toEqual([
+        { ticker: btc, freshness: 'fresh' },
+        { ticker: eth, freshness: 'fresh' },
+      ])
+    })
+
+    it('preserves freshness independently for mixed cache states', async () => {
+      const btc = makeTicker('BTCUSDT')
+      const eth = makeTicker('ETHUSDT')
+      cache.set('BTCUSDT', { ticker: btc, updatedAt: Date.now() })
+      cache.set('ETHUSDT', { ticker: eth, updatedAt: 0 })
+
+      const results = await service.getTickers(['BTCUSDT', 'ETHUSDT'])
+
+      expect(results).toEqual([
+        { ticker: btc, freshness: 'fresh' },
+        { ticker: eth, freshness: 'stale' },
+      ])
     })
 
     it('returns an empty array for an empty input', async () => {

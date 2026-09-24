@@ -44,11 +44,10 @@ const validToken    = tokenService.signAccessToken({
 })
 
 const activeSession = {
-  id: SESSION_ID, accountId: ACCOUNT_ID, revokedAt: null,
+  id: SESSION_ID, accountId: ACCOUNT_ID, walletId: WALLET_ID, revokedAt: null,
   expiresAt: new Date(Date.now() + 60_000),
 }
 const activeAccount = { id: ACCOUNT_ID }
-const roleRow       = { walletId: WALLET_ID, role: 'AUTH' }
 
 // MARK: - App builder
 
@@ -94,7 +93,6 @@ describe('authenticate middleware', () => {
     dbSelectCalls = [
       () => makeLimit([activeSession]),
       () => makeLimit([activeAccount]),
-      () => makeLimit([roleRow]),
     ]
     const res = await request(buildApp())
       .get(`/protected?token=${validToken}`)
@@ -164,7 +162,6 @@ describe('authenticate middleware', () => {
     dbSelectCalls = [
       () => makeLimit([activeSession]),
       () => makeLimit([activeAccount]),
-      () => makeLimit([roleRow]),
     ]
     const res = await request(buildApp())
       .get('/protected')
@@ -176,16 +173,16 @@ describe('authenticate middleware', () => {
     expect(res.body.auth.roles).toContain('OWNER')
   })
 
-  it('sets walletId to null when no AUTH role row found', async () => {
+  it('attributes walletId to the session that authenticated it, not an arbitrary role row', async () => {
+    const OTHER_WALLET_ID = 'wid-other'
     dbSelectCalls = [
-      () => makeLimit([activeSession]),
+      () => makeLimit([{ ...activeSession, walletId: OTHER_WALLET_ID }]),
       () => makeLimit([activeAccount]),
-      () => makeLimit([]),
     ]
     const res = await request(buildApp())
       .get('/protected')
       .set('Authorization', `Bearer ${validToken}`)
     expect(res.status).toBe(200)
-    expect(res.body.auth.walletId).toBeNull()
+    expect(res.body.auth.walletId).toBe(OTHER_WALLET_ID)
   })
 })

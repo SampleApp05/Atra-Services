@@ -84,6 +84,10 @@ describe('MarketStreamManager', () => {
       manager.subscribe('socket-2', ['BTCUSDT'])
       manager.unsubscribe('socket-1', ['BTCUSDT'])
       expect(wsAdapter.unsubscribe).not.toHaveBeenCalled()
+
+      manager.unsubscribe('socket-2', ['BTCUSDT'])
+      expect(wsAdapter.unsubscribe).toHaveBeenCalledOnce()
+      expect(wsAdapter.unsubscribe).toHaveBeenCalledWith('BTCUSDT')
     })
 
     it('unsubscribes Binance when the last socket unsubscribes', () => {
@@ -99,6 +103,28 @@ describe('MarketStreamManager', () => {
       const { wsAdapter, manager } = makeManager()
       manager.unsubscribe('socket-1', ['BTCUSDT'])
       expect(wsAdapter.unsubscribe).not.toHaveBeenCalled()
+    })
+
+    it('does not release a symbol when a non-member socket unsubscribes', () => {
+      const { wsAdapter, manager } = makeManager()
+      manager.subscribe('socket-1', ['BTCUSDT'])
+
+      manager.unsubscribe('socket-2', ['BTCUSDT'])
+      expect(wsAdapter.unsubscribe).not.toHaveBeenCalled()
+
+      manager.unsubscribe('socket-1', ['BTCUSDT'])
+      expect(wsAdapter.unsubscribe).toHaveBeenCalledOnce()
+    })
+
+    it('does not release upstream interest more than once after repeated removal', () => {
+      const { wsAdapter, manager } = makeManager()
+      manager.subscribe('socket-1', ['BTCUSDT'])
+
+      manager.unsubscribe('socket-1', ['BTCUSDT'])
+      manager.unsubscribe('socket-1', ['BTCUSDT'])
+
+      expect(wsAdapter.unsubscribe).toHaveBeenCalledOnce()
+      expect(wsAdapter.unsubscribe).toHaveBeenCalledWith('BTCUSDT')
     })
   })
 

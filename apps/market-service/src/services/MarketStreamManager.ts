@@ -122,7 +122,11 @@ export class MarketStreamManager {
   // MARK: Private — Unsubscribe Flow
 
   private _unsubscribeOne(socketId: SocketId, symbol: string): void {
-    this._removeSocketFromSymbol(socketId, symbol)
+    const removed = this._removeSocketFromSymbol(socketId, symbol)
+
+    if (removed === false) {
+      return
+    }
 
     // Clean up connection registry entry for this symbol
     const socketSymbols = this.connectionRegistry.get(socketId)
@@ -134,11 +138,16 @@ export class MarketStreamManager {
     }
   }
 
-  private _removeSocketFromSymbol(socketId: SocketId, symbol: string): void {
+  private _removeSocketFromSymbol(socketId: SocketId, symbol: string): boolean {
     const entry = this.symbolRegistry.get(symbol)
 
     if (entry === undefined) {
-      return
+      return false
+    }
+
+    // A removal changes reference state only when this socket actually holds it.
+    if (entry.subscribers.has(socketId) === false) {
+      return false
     }
 
     // Step 1 — Remove socket from subscriber set
@@ -152,6 +161,8 @@ export class MarketStreamManager {
       this.wsAdapter.unsubscribe(symbol)
       this.symbolRegistry.delete(symbol)
     }
+
+    return true
   }
 
   // MARK: Private — Incoming Ticker Flow

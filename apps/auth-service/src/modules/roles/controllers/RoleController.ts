@@ -12,19 +12,19 @@ export class RoleController {
   // POST /roles/challenge
   challenge = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { accountId, walletId, targetAddress } = req.body as {
-        accountId: string
-        walletId: string
+      const { targetAddress } = req.body as {
         targetAddress: string
       }
 
-      if (!accountId || !walletId || !targetAddress) {
+      if (!targetAddress) {
         res.status(400).json({ error: 'MISSING_FIELDS' })
         return
       }
 
+      const accountId = req.auth?.accountId
+      const walletId = req.auth?.walletId
       const chainId = req.auth?.chainId
-      if (!chainId) {
+      if (!accountId || !walletId || !chainId) {
         res.status(401).json({ error: 'UNAUTHORIZED' })
         return
       }
@@ -44,12 +44,10 @@ export class RoleController {
   verify = async (req: Request, res: Response): Promise<void> => {
     try {
       const {
-        accountId, walletId, targetAddress, operation,
+        targetAddress, operation,
         ownerNonce, ownerSignature,
         targetNonce, targetSignature,
       } = req.body as {
-        accountId: string
-        walletId: string
         targetAddress: string
         operation: RoleOperation
         ownerNonce: string
@@ -58,7 +56,7 @@ export class RoleController {
         targetSignature: string
       }
 
-      if (!accountId || !walletId || !targetAddress || !operation ||
+      if (!targetAddress || !operation ||
           !ownerNonce || !ownerSignature || !targetNonce || !targetSignature) {
         res.status(400).json({ error: 'MISSING_FIELDS' })
         return
@@ -72,8 +70,10 @@ export class RoleController {
         return
       }
 
+      const accountId = req.auth?.accountId
+      const walletId = req.auth?.walletId
       const chainId = req.auth?.chainId
-      if (!chainId) {
+      if (!accountId || !walletId || !chainId) {
         res.status(401).json({ error: 'UNAUTHORIZED' })
         return
       }

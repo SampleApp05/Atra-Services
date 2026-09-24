@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RoleService } from '../../src/modules/roles/services/RoleService.js'
+import { accounts, sessions } from '@atra/database'
 
 // MARK: - Mock helpers
 
@@ -24,6 +25,7 @@ let dbSelectCalls: Array<() => ReturnType<typeof makeLimit>> = []
  * Kept separate from dbSelectCalls so tests can set them independently.
  */
 let txSelectResults: any[][] = []
+let txUpdateCalls: Array<{ table: unknown; values: unknown }> = []
 
 const makeTx = () => ({
   select: () => ({
@@ -41,7 +43,12 @@ const makeTx = () => ({
   }),
   insert: () => ({ values: () => Promise.resolve([]) }),
   delete: () => ({ where: () => Promise.resolve([]) }),
-  update: () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),
+  update: (table: unknown) => ({
+    set: (values: unknown) => {
+      txUpdateCalls.push({ table, values })
+      return { where: () => Promise.resolve([]) }
+    },
+  }),
 })
 
 const mockDb: any = {
@@ -63,6 +70,9 @@ const mockDb: any = {
 const nonceService = {
   create: vi.fn(),
   markUsed: vi.fn(),
+  // Default: every consume() call succeeds unless a test overrides it
+  // (via mockResolvedValueOnce) to exercise the invalid/expired path.
+  consume: vi.fn().mockResolvedValue({ id: 'consumed-nonce' }),
 }
 
 const signatureService = {
@@ -101,6 +111,9 @@ describe('RoleService', () => {
     vi.clearAllMocks()
     dbSelectCalls = []
     txSelectResults = []
+    txUpdateCalls = []
+    // vi.clearAllMocks() clears call history but not the default implementation.
+    nonceService.consume.mockResolvedValue({ id: 'consumed-nonce' })
     service = new RoleService(mockDb, nonceService as any, signatureService as any)
   })
 
@@ -150,12 +163,8 @@ describe('RoleService', () => {
     const OWNER_NONCE  = 'owner-nonce'
     const TARGET_NONCE = 'target-nonce'
 
-    const ownerChallenge  = { id: 'oc-1', nonce: OWNER_NONCE,  purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-    const targetChallenge = { id: 'tc-1', nonce: TARGET_NONCE, purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-
     beforeEach(() => {
       signatureService.verifySignature.mockReturnValue(true)
-      nonceService.markUsed.mockResolvedValue(undefined)
       txSelectResults = [[]] // existing check in GRANT_AUTH tx: no rows
     })
 
@@ -164,8 +173,6 @@ describe('RoleService', () => {
         () => makeLimit([ownerWallet]),  // getWalletAddress
         () => makeLimit([ownerRole]),    // assertOwner
         () => makeLimit([targetWallet]), // findWalletByAddress
-        () => makeLimit([ownerChallenge]),  // ownerChallenge
-        () => makeLimit([targetChallenge]), // targetChallenge
       ]
 
       await expect(
@@ -178,7 +185,9 @@ describe('RoleService', () => {
         )
       ).resolves.toBeUndefined()
 
-      expect(nonceService.markUsed).toHaveBeenCalledTimes(2)
+      expect(nonceService.consume).toHaveBeenCalledTimes(2)
+      expect(nonceService.consume).toHaveBeenNthCalledWith(1, OWNER_WID, OWNER_NONCE, 'GRANT_AUTH', expect.anything())
+      expect(nonceService.consume).toHaveBeenNthCalledWith(2, TARGET_WID, TARGET_NONCE, 'GRANT_AUTH', expect.anything())
       expect(signatureService.verifySignature).toHaveBeenCalledTimes(2)
     })
 
@@ -213,13 +222,13 @@ describe('RoleService', () => {
       ).rejects.toThrow('TARGET_WALLET_NOT_FOUND')
     })
 
-    it('throws INVALID_OWNER_NONCE when owner challenge missing', async () => {
+    it('throws INVALID_OWNER_NONCE when the atomic consume of the owner nonce fails', async () => {
       dbSelectCalls = [
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeNoRows(), // owner nonce not found
       ]
+      nonceService.consume.mockResolvedValueOnce(null) // owner consume fails
       await expect(
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
@@ -230,14 +239,15 @@ describe('RoleService', () => {
       ).rejects.toThrow('INVALID_OWNER_NONCE')
     })
 
-    it('throws INVALID_TARGET_NONCE when target challenge missing', async () => {
+    it('throws INVALID_TARGET_NONCE when the atomic consume of the target nonce fails', async () => {
       dbSelectCalls = [
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChallenge]),
-        () => makeNoRows(), // target nonce not found
       ]
+      nonceService.consume
+        .mockResolvedValueOnce({ id: 'oc-1' }) // owner consume succeeds
+        .mockResolvedValueOnce(null)           // target consume fails
       await expect(
         service.verifyAndApply(
           ACCOUNT_ID, OWNER_WID, TARGET_ADDR, 'GRANT_AUTH',
@@ -254,8 +264,6 @@ describe('RoleService', () => {
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChallenge]),
-        () => makeLimit([targetChallenge]),
       ]
       await expect(
         service.verifyAndApply(
@@ -265,6 +273,7 @@ describe('RoleService', () => {
           11155111
         )
       ).rejects.toThrow('OWNER_SIGNATURE_MISMATCH')
+      expect(nonceService.consume).not.toHaveBeenCalled()
     })
 
     it('throws TARGET_SIGNATURE_MISMATCH when target sig is wrong', async () => {
@@ -275,8 +284,6 @@ describe('RoleService', () => {
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChallenge]),
-        () => makeLimit([targetChallenge]),
       ]
       await expect(
         service.verifyAndApply(
@@ -286,6 +293,7 @@ describe('RoleService', () => {
           11155111
         )
       ).rejects.toThrow('TARGET_SIGNATURE_MISMATCH')
+      expect(nonceService.consume).not.toHaveBeenCalled()
     })
   })
 
@@ -294,19 +302,14 @@ describe('RoleService', () => {
   describe('verifyAndApply — TRANSFER_OWNER', () => {
     const OWNER_NONCE  = 'on'
     const TARGET_NONCE = 'tn'
-    const ownerChallenge  = { id: 'oc-1', nonce: OWNER_NONCE,  purpose: 'TRANSFER_OWNER', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-    const targetChallenge = { id: 'tc-1', nonce: TARGET_NONCE, purpose: 'TRANSFER_OWNER', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
 
     it('succeeds transferring ownership', async () => {
       signatureService.verifySignature.mockReturnValue(true)
-      nonceService.markUsed.mockResolvedValue(undefined)
 
       dbSelectCalls = [
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChallenge]),
-        () => makeLimit([targetChallenge]),
       ]
 
       await expect(
@@ -317,6 +320,15 @@ describe('RoleService', () => {
           11155111
         )
       ).resolves.toBeUndefined()
+
+      expect(nonceService.consume).toHaveBeenNthCalledWith(1, OWNER_WID, OWNER_NONCE, 'TRANSFER_OWNER', expect.anything())
+      expect(nonceService.consume).toHaveBeenNthCalledWith(2, TARGET_WID, TARGET_NONCE, 'TRANSFER_OWNER', expect.anything())
+      expect(txUpdateCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ table: accounts, values: { ownerWalletId: TARGET_WID } }),
+      ]))
+      expect(txUpdateCalls.some(
+        (call) => call.table === sessions && (call.values as { revokedAt: unknown }).revokedAt instanceof Date
+      )).toBe(true)
     })
   })
 
@@ -325,17 +337,11 @@ describe('RoleService', () => {
   describe('verifyAndApply — REVOKE_AUTH', () => {
     it('succeeds revoking AUTH role', async () => {
       signatureService.verifySignature.mockReturnValue(true)
-      nonceService.markUsed.mockResolvedValue(undefined)
-
-      const ownerChal  = { id: 'o1', nonce: 'on', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-      const targetChal = { id: 't1', nonce: 'tn', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
 
       dbSelectCalls = [
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChal]),
-        () => makeLimit([targetChal]),
       ]
 
       await expect(
@@ -346,6 +352,10 @@ describe('RoleService', () => {
           11155111
         )
       ).resolves.toBeUndefined()
+
+      expect(txUpdateCalls.some(
+        (call) => call.table === sessions && (call.values as { revokedAt: unknown }).revokedAt instanceof Date
+      )).toBe(true)
     })
   })
 
@@ -354,10 +364,6 @@ describe('RoleService', () => {
   describe('verifyAndApply — ASSIGN_RECOVERY', () => {
     it('throws RECOVERY_WALLET_ALREADY_ASSIGNED if one already exists', async () => {
       signatureService.verifySignature.mockReturnValue(true)
-      nonceService.markUsed.mockResolvedValue(undefined)
-
-      const ownerChal  = { id: 'o1', nonce: 'on', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-      const targetChal = { id: 't1', nonce: 'tn', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
 
       // Override the tx.select to return an existing RECOVERY row
       txSelectResults = [[{ role: 'RECOVERY' }]]
@@ -366,8 +372,6 @@ describe('RoleService', () => {
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChal]),
-        () => makeLimit([targetChal]),
       ]
 
       await expect(
@@ -382,10 +386,6 @@ describe('RoleService', () => {
 
     it('succeeds assigning RECOVERY when none exists', async () => {
       signatureService.verifySignature.mockReturnValue(true)
-      nonceService.markUsed.mockResolvedValue(undefined)
-
-      const ownerChal  = { id: 'o1', nonce: 'on', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-      const targetChal = { id: 't1', nonce: 'tn', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
 
       txSelectResults = [[]] // no existing RECOVERY
 
@@ -393,8 +393,6 @@ describe('RoleService', () => {
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChal]),
-        () => makeLimit([targetChal]),
       ]
 
       await expect(
@@ -413,10 +411,6 @@ describe('RoleService', () => {
   describe('verifyAndApply — REMOVE_WALLET', () => {
     it('throws CANNOT_REMOVE_OWNER_WALLET when target is OWNER', async () => {
       signatureService.verifySignature.mockReturnValue(true)
-      nonceService.markUsed.mockResolvedValue(undefined)
-
-      const ownerChal  = { id: 'o1', nonce: 'on', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-      const targetChal = { id: 't1', nonce: 'tn', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
 
       // REMOVE_WALLET checks if target is OWNER inside tx
       txSelectResults = [[{ role: 'OWNER' }]]
@@ -425,8 +419,6 @@ describe('RoleService', () => {
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChal]),
-        () => makeLimit([targetChal]),
       ]
 
       await expect(
@@ -441,10 +433,6 @@ describe('RoleService', () => {
 
     it('succeeds removing a non-owner wallet', async () => {
       signatureService.verifySignature.mockReturnValue(true)
-      nonceService.markUsed.mockResolvedValue(undefined)
-
-      const ownerChal  = { id: 'o1', nonce: 'on', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
-      const targetChal = { id: 't1', nonce: 'tn', purpose: 'GRANT_AUTH', usedAt: null, expiresAt: new Date(Date.now() + 60_000) }
 
       txSelectResults = [[]] // target is NOT owner
 
@@ -452,8 +440,6 @@ describe('RoleService', () => {
         () => makeLimit([ownerWallet]),
         () => makeLimit([ownerRole]),
         () => makeLimit([targetWallet]),
-        () => makeLimit([ownerChal]),
-        () => makeLimit([targetChal]),
       ]
 
       await expect(

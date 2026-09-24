@@ -1,6 +1,7 @@
 // MARK: - account_wallet_roles schema
 
-import { pgTable, pgEnum, uuid, timestamp } from 'drizzle-orm/pg-core'
+import { pgTable, pgEnum, uuid, timestamp, uniqueIndex } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { accounts } from './accounts.js'
 import { wallets } from './wallets.js'
 
@@ -24,7 +25,19 @@ export const accountWalletRoles = pgTable('account_wallet_roles', {
   role:              walletRoleEnum('role').notNull(),
   grantedByWalletId: uuid('granted_by_wallet_id').references(() => wallets.id),
   createdAt:         timestamp('created_at').notNull().defaultNow(),
-})
+}, (table) => ({
+  // No duplicate (account, wallet, role) associations.
+  accountWalletRoleIdx: uniqueIndex('account_wallet_roles_account_wallet_role_idx')
+    .on(table.accountId, table.walletId, table.role),
+  // At most one OWNER per account.
+  oneOwnerPerAccountIdx: uniqueIndex('account_wallet_roles_one_owner_idx')
+    .on(table.accountId)
+    .where(sql`${table.role} = 'OWNER'`),
+  // At most one RECOVERY per account.
+  oneRecoveryPerAccountIdx: uniqueIndex('account_wallet_roles_one_recovery_idx')
+    .on(table.accountId)
+    .where(sql`${table.role} = 'RECOVERY'`),
+}))
 
 // MARK: Types
 

@@ -2,11 +2,10 @@
 // Orchestrates the LINK_WALLET challenge/verify flow (Phase 2.6).
 // Requires an active OWNER or AUTH session for the account.
 
-import { and, eq, isNull, gt } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { Db, WalletRole } from '@atra/database'
 import {
   wallets,
-  nonceChallenges,
   accountWalletRoles,
   auditLogs,
 } from '@atra/database'
@@ -116,48 +115,33 @@ export class WalletLinkingService {
 
     if (!wallet) throw new Error('WALLET_NOT_FOUND')
 
-    // 3. Find a valid LINK_WALLET challenge for this wallet
-    const now = new Date()
-    const [challenge] = await this.db
-      .select()
-      .from(nonceChallenges)
-      .where(
-        and(
-          eq(nonceChallenges.walletId, wallet.id),
-          eq(nonceChallenges.nonce, nonce),
-          eq(nonceChallenges.purpose, 'LINK_WALLET'),
-          isNull(nonceChallenges.usedAt),
-          gt(nonceChallenges.expiresAt, now)
-        )
-      )
-      .limit(1)
-
-    if (!challenge) throw new Error('INVALID_OR_EXPIRED_NONCE')
-
-    // 4. Verify the new wallet's signature
+    // 3. Verify the new wallet's signature
     const message = this.signatureService.buildChallengeMessage(nonce, 'LINK_WALLET')
     if (!this.signatureService.verifySignature(message, signature, normalised)) {
       throw new Error('SIGNATURE_MISMATCH')
     }
 
-    // 5. Consume nonce
-    await this.nonceService.markUsed(challenge.id)
-
-    // 6. Grant STANDARD role — default for linked wallets
+    // 4. Atomically consume the nonce and grant the STANDARD role (default
+    //    for linked wallets) in the same transaction, so the nonce is only
+    //    ever burned together with the link it authorizes.
     const role: WalletRole = 'STANDARD'
-    await this.db.insert(accountWalletRoles).values({
-      accountId,
-      walletId: wallet.id,
-      role,
-      grantedByWalletId: callerWalletId,
-    })
+    await this.db.transaction(async (tx) => {
+      const consumed = await this.nonceService.consume(wallet.id, nonce, 'LINK_WALLET', tx)
+      if (!consumed) throw new Error('INVALID_OR_EXPIRED_NONCE')
 
-    // 7. Audit
-    await this.db.insert(auditLogs).values({
-      accountId,
-      actorWalletId: callerWalletId,
-      action: 'WALLET_LINKED',
-      metadata: { newWalletId: wallet.id, address: normalised, role },
+      await tx.insert(accountWalletRoles).values({
+        accountId,
+        walletId: wallet.id,
+        role,
+        grantedByWalletId: callerWalletId,
+      })
+
+      await tx.insert(auditLogs).values({
+        accountId,
+        actorWalletId: callerWalletId,
+        action: 'WALLET_LINKED',
+        metadata: { newWalletId: wallet.id, address: normalised, role },
+      })
     })
 
     return { walletId: wallet.id, role }

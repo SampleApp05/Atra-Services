@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { getTableName } from 'drizzle-orm'
+import { getTableConfig } from 'drizzle-orm/pg-core'
 import { accountWalletRoles, walletRoleEnum } from '../../src/schema/accountWalletRoles.js'
 
 describe('accountWalletRoles schema', () => {
@@ -73,5 +74,31 @@ describe('accountWalletRoles schema', () => {
 
   it('role is not nullable', () => {
     expect(accountWalletRoles.role.notNull).toBe(true)
+  })
+
+  // MARK: Role/Owner Invariant Indexes
+
+  it('has a unique index preventing duplicate (account, wallet, role) associations', () => {
+    const { indexes } = getTableConfig(accountWalletRoles)
+    const idx = indexes.find((i) => i.config.name === 'account_wallet_roles_account_wallet_role_idx')
+    expect(idx).toBeDefined()
+    expect(idx?.config.unique).toBe(true)
+    expect(idx?.config.columns.map((c: any) => c.name)).toEqual(['account_id', 'wallet_id', 'role'])
+  })
+
+  it('has a partial unique index enforcing at most one OWNER per account', () => {
+    const { indexes } = getTableConfig(accountWalletRoles)
+    const idx = indexes.find((i) => i.config.name === 'account_wallet_roles_one_owner_idx')
+    expect(idx).toBeDefined()
+    expect(idx?.config.unique).toBe(true)
+    expect(idx?.config.where).toBeDefined()
+  })
+
+  it('has a partial unique index enforcing at most one RECOVERY per account', () => {
+    const { indexes } = getTableConfig(accountWalletRoles)
+    const idx = indexes.find((i) => i.config.name === 'account_wallet_roles_one_recovery_idx')
+    expect(idx).toBeDefined()
+    expect(idx?.config.unique).toBe(true)
+    expect(idx?.config.where).toBeDefined()
   })
 })
