@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RecoveryService } from '../../src/modules/recovery/services/RecoveryService.js'
+import { sessions } from '@atra/database'
 
 // MARK: - Mock helpers
 
@@ -19,12 +20,30 @@ function makeNoRows() {
 // MARK: - DB mock
 
 let dbSelectCalls: Array<() => ReturnType<typeof makeLimit>> = []
+let txSelectResults: any[][] = []
+let txUpdateCalls: Array<{ table: unknown; values: unknown }> = []
 
 const makeTx = () => ({
-  select:  () => ({ from: () => ({ where: () => ({ limit: (_: number) => Promise.resolve([]) }) }) }),
-  insert:  () => ({ values: () => Promise.resolve([]) }),
-  delete:  () => ({ where: () => Promise.resolve([]) }),
-  update:  () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),
+  select: () => ({
+    from: () => ({
+      where: () => {
+        const rows = txSelectResults.shift() ?? []
+        return {
+          then: (resolve: (v: any) => unknown, reject?: (e: any) => unknown) =>
+            Promise.resolve(rows).then(resolve, reject),
+          limit: (_n: number) => Promise.resolve(rows),
+        }
+      },
+    }),
+  }),
+  insert: () => ({ values: () => Promise.resolve([]) }),
+  delete: () => ({ where: () => Promise.resolve([]) }),
+  update: (table: unknown) => ({
+    set: (values: unknown) => {
+      txUpdateCalls.push({ table, values })
+      return { where: () => Promise.resolve([]) }
+    },
+  }),
 })
 
 const mockDb: any = {
@@ -56,6 +75,7 @@ const signatureService = {
 const ACCOUNT_ID   = 'acc-1'
 const RECOVERY_WID = 'wid-recovery'
 const RECOVERY_ADDR = '0xrecovery'
+const OLD_OWNER_WID = 'wid-old-owner'
 
 const recoveryWallet = { id: RECOVERY_WID, address: RECOVERY_ADDR }
 const recoveryRole   = { accountId: ACCOUNT_ID, walletId: RECOVERY_WID, role: 'RECOVERY' }
@@ -68,6 +88,8 @@ describe('RecoveryService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     dbSelectCalls = []
+    txSelectResults = []
+    txUpdateCalls = []
     service = new RecoveryService(mockDb, nonceService as any, signatureService as any)
   })
 
@@ -128,12 +150,35 @@ describe('RecoveryService', () => {
         () => makeLimit([recoveryRole]),    // assertRecoveryRole
         () => makeLimit([validChallenge]),  // findValidChallenge (via select)
       ]
+      txSelectResults = [
+        [{ accountId: ACCOUNT_ID, walletId: OLD_OWNER_WID, role: 'OWNER' }], // previous OWNER row(s)
+      ]
 
       const result = await service.executeRecovery(ACCOUNT_ID, RECOVERY_ADDR, NONCE, 'sig')
 
       expect(result.newOwnerWalletId).toBe(RECOVERY_WID)
       expect(nonceService.markUsed).toHaveBeenCalledWith('ch-1')
       expect(signatureService.verifySignature).toHaveBeenCalledOnce()
+    })
+
+    it('invalidates the previous owner wallet sessions on recovery', async () => {
+      signatureService.verifySignature.mockReturnValue(true)
+      nonceService.markUsed.mockResolvedValue(undefined)
+
+      dbSelectCalls = [
+        () => makeLimit([recoveryWallet]),
+        () => makeLimit([recoveryRole]),
+        () => makeLimit([validChallenge]),
+      ]
+      txSelectResults = [
+        [{ accountId: ACCOUNT_ID, walletId: OLD_OWNER_WID, role: 'OWNER' }],
+      ]
+
+      await service.executeRecovery(ACCOUNT_ID, RECOVERY_ADDR, NONCE, 'sig')
+
+      expect(txUpdateCalls.some(
+        (call) => call.table === sessions && (call.values as { revokedAt: unknown }).revokedAt instanceof Date
+      )).toBe(true)
     })
 
     it('throws RECOVERY_WALLET_NOT_FOUND when address unknown', async () => {

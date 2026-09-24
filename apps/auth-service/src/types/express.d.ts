@@ -14,7 +14,7 @@ declare global {
       auth?: {
         accountId: string
         sessionId: string
-        walletId: string | null   // resolved from the session's account
+        walletId: string          // the session's persisted authenticating wallet
         roles: WalletRole[]
         chainId: number
       }

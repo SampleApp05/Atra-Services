@@ -57,9 +57,10 @@ export class SessionService {
     // 2. Generate refresh token
     const { raw, hash, expiresAt } = this.tokenService.generateRefreshToken()
 
-    // 3. Persist session
+    // 3. Persist session, including the wallet that authenticated it
     const session = await this.sessionRepository.create({
       accountId,
+      walletId,
       chainId,
       refreshTokenHash: hash,
       deviceName,
@@ -103,15 +104,8 @@ export class SessionService {
 
     if (!session) throw new Error('INVALID_OR_EXPIRED_REFRESH_TOKEN')
 
-    // 2. Find the OWNER/AUTH wallet for this account to embed roles
-    //    We re-use the original session's accountId to look up wallets.
-    const ownerWalletRow = await this.db
-      .select()
-      .from(accountWalletRoles)
-      .where(eq(accountWalletRoles.accountId, session.accountId))
-      .limit(1)
-
-    const actorWalletId = ownerWalletRow[0]?.walletId ?? session.accountId
+    // 2. Refresh preserves the original authenticating wallet
+    const actorWalletId = session.walletId
 
     // 3. Revoke old session
     await this.sessionRepository.revoke(session.id)
@@ -151,7 +145,7 @@ export class SessionService {
 
     await this.db.insert(auditLogs).values({
       accountId,
-      actorWalletId: accountId, // best-effort — will be replaced by middleware later
+      actorWalletId: session.walletId,
       action: 'SESSION_REVOKED',
       metadata: { sessionId },
     })

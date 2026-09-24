@@ -10,7 +10,7 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import { eq, and, isNull } from 'drizzle-orm'
 import type { Db, WalletRole } from '@atra/database'
-import { sessions, accounts, accountWalletRoles } from '@atra/database'
+import { sessions, accounts } from '@atra/database'
 import { TokenService } from '../modules/auth/services/TokenService.js'
 
 // MARK: - Types
@@ -18,7 +18,7 @@ import { TokenService } from '../modules/auth/services/TokenService.js'
 export interface AuthContext {
   accountId: string
   sessionId: string
-  walletId: string | null
+  walletId: string
   roles: string[]
   chainId: number
 }
@@ -80,21 +80,8 @@ export function createAuthMiddleware(db: Db): RequestHandler {
         return
       }
 
-      // MARK: 5. Resolve walletId (first AUTH or OWNER wallet for this account)
-      // Best-effort: used for audit log attribution. Null if unavailable.
-      const [roleRow] = await db
-        .select()
-        .from(accountWalletRoles)
-        .where(and(
-          eq(accountWalletRoles.accountId, accountId),
-          eq(accountWalletRoles.role, 'AUTH')
-        ))
-        .limit(1)
-
-      const walletId = roleRow?.walletId ?? null
-
-      // MARK: 6. Attach auth context
-      req.auth = { accountId, sessionId, walletId, roles: roles as WalletRole[], chainId }
+      // MARK: 5. Attach auth context — walletId is the session's persisted authenticating wallet
+      req.auth = { accountId, sessionId, walletId: session.walletId, roles: roles as WalletRole[], chainId }
 
       next()
     } catch {

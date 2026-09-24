@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { RoleService } from '../../src/modules/roles/services/RoleService.js'
+import { accounts, sessions } from '@atra/database'
 
 // MARK: - Mock helpers
 
@@ -24,6 +25,7 @@ let dbSelectCalls: Array<() => ReturnType<typeof makeLimit>> = []
  * Kept separate from dbSelectCalls so tests can set them independently.
  */
 let txSelectResults: any[][] = []
+let txUpdateCalls: Array<{ table: unknown; values: unknown }> = []
 
 const makeTx = () => ({
   select: () => ({
@@ -41,7 +43,12 @@ const makeTx = () => ({
   }),
   insert: () => ({ values: () => Promise.resolve([]) }),
   delete: () => ({ where: () => Promise.resolve([]) }),
-  update: () => ({ set: () => ({ where: () => Promise.resolve([]) }) }),
+  update: (table: unknown) => ({
+    set: (values: unknown) => {
+      txUpdateCalls.push({ table, values })
+      return { where: () => Promise.resolve([]) }
+    },
+  }),
 })
 
 const mockDb: any = {
@@ -101,6 +108,7 @@ describe('RoleService', () => {
     vi.clearAllMocks()
     dbSelectCalls = []
     txSelectResults = []
+    txUpdateCalls = []
     service = new RoleService(mockDb, nonceService as any, signatureService as any)
   })
 
@@ -317,6 +325,13 @@ describe('RoleService', () => {
           11155111
         )
       ).resolves.toBeUndefined()
+
+      expect(txUpdateCalls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ table: accounts, values: { ownerWalletId: TARGET_WID } }),
+      ]))
+      expect(txUpdateCalls.some(
+        (call) => call.table === sessions && (call.values as { revokedAt: unknown }).revokedAt instanceof Date
+      )).toBe(true)
     })
   })
 
@@ -346,6 +361,10 @@ describe('RoleService', () => {
           11155111
         )
       ).resolves.toBeUndefined()
+
+      expect(txUpdateCalls.some(
+        (call) => call.table === sessions && (call.values as { revokedAt: unknown }).revokedAt instanceof Date
+      )).toBe(true)
     })
   })
 

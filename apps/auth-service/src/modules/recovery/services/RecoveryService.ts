@@ -1,6 +1,6 @@
 import { and, eq, isNull, gt } from 'drizzle-orm'
 import type { Db, NoncePurpose } from '@atra/database'
-import { wallets, nonceChallenges, accountWalletRoles, accounts, auditLogs } from '@atra/database'
+import { wallets, nonceChallenges, accountWalletRoles, accounts, sessions, auditLogs } from '@atra/database'
 import type { NonceService } from '../../identity/services/NonceService.js'
 import type { SignatureService } from '../../identity/services/SignatureService.js'
 
@@ -90,6 +90,15 @@ export class RecoveryService {
     await this.nonceService.markUsed(challenge.id)
 
     await this.db.transaction(async (tx) => {
+      // Capture the current OWNER wallet(s) before they are replaced
+      const previousOwnerRows = await tx
+        .select()
+        .from(accountWalletRoles)
+        .where(and(
+          eq(accountWalletRoles.accountId, accountId),
+          eq(accountWalletRoles.role, 'OWNER')
+        ))
+
       // Remove old OWNER role(s)
       await tx
         .delete(accountWalletRoles)
@@ -118,6 +127,18 @@ export class RecoveryService {
         .update(accounts)
         .set({ ownerWalletId: wallet.id })
         .where(eq(accounts.id, accountId))
+
+      // Recovery invalidates the sessions of the wallet(s) that lost OWNER
+      for (const previousOwner of previousOwnerRows) {
+        if (previousOwner.walletId === wallet.id) continue
+        await tx
+          .update(sessions)
+          .set({ revokedAt: new Date() })
+          .where(and(
+            eq(sessions.walletId, previousOwner.walletId),
+            isNull(sessions.revokedAt)
+          ))
+      }
 
       await tx.insert(auditLogs).values({
         accountId,

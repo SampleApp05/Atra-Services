@@ -4,7 +4,7 @@
 
 import { and, eq, isNull, gt, ne } from 'drizzle-orm'
 import type { Db, NoncePurpose, WalletRole } from '@atra/database'
-import { wallets, nonceChallenges, accountWalletRoles, auditLogs } from '@atra/database'
+import { wallets, nonceChallenges, accountWalletRoles, accounts, sessions, auditLogs } from '@atra/database'
 import type { NonceService } from '../../identity/services/NonceService.js'
 import type { SignatureService } from '../../identity/services/SignatureService.js'
 
@@ -174,6 +174,16 @@ export class RoleService {
               eq(accountWalletRoles.walletId, targetWalletId),
               eq(accountWalletRoles.role, 'AUTH')
             ))
+
+          // Loss of the authorizing AUTH role invalidates that wallet's sessions
+          await tx
+            .update(sessions)
+            .set({ revokedAt: new Date() })
+            .where(and(
+              eq(sessions.walletId, targetWalletId),
+              isNull(sessions.revokedAt)
+            ))
+
           await tx.insert(auditLogs).values({
             accountId, actorWalletId: ownerWalletId, action: 'ROLE_REVOKED',
             metadata: { targetWalletId, role: 'AUTH' },
@@ -219,6 +229,22 @@ export class RoleService {
           await tx.insert(accountWalletRoles).values({
             accountId, walletId: targetWalletId, role: 'OWNER', grantedByWalletId: ownerWalletId,
           })
+
+          // Keep the canonical owner reference in sync with the OWNER association
+          await tx
+            .update(accounts)
+            .set({ ownerWalletId: targetWalletId })
+            .where(eq(accounts.id, accountId))
+
+          // Ownership transfer invalidates the previous owner's sessions
+          await tx
+            .update(sessions)
+            .set({ revokedAt: new Date() })
+            .where(and(
+              eq(sessions.walletId, ownerWalletId),
+              isNull(sessions.revokedAt)
+            ))
+
           await tx.insert(auditLogs).values({
             accountId, actorWalletId: ownerWalletId, action: 'OWNER_TRANSFERRED',
             metadata: { fromWalletId: ownerWalletId, toWalletId: targetWalletId },

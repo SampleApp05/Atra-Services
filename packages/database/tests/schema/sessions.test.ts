@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { getTableName } from 'drizzle-orm'
+import { getTableConfig } from 'drizzle-orm/pg-core'
 import { sessions } from '../../src/schema/sessions.js'
 
 describe('sessions schema', () => {
@@ -20,6 +21,10 @@ describe('sessions schema', () => {
 
   it('has an account_id column', () => {
     expect(sessions.accountId.name).toBe('account_id')
+  })
+
+  it('has a wallet_id column', () => {
+    expect(sessions.walletId.name).toBe('wallet_id')
   })
 
   it('has a refresh_token_hash column', () => {
@@ -57,11 +62,21 @@ describe('sessions schema', () => {
     expect(sessions.accountId.notNull).toBe(true)
   })
 
+  it('wallet_id is not nullable', () => {
+    expect(sessions.walletId.notNull).toBe(true)
+  })
+
   it('refresh_token_hash is not nullable', () => {
     expect(sessions.refreshTokenHash.notNull).toBe(true)
   })
 
   it('expires_at is not nullable', () => {
     expect(sessions.expiresAt.notNull).toBe(true)
+  })
+
+  it('references wallets for wallet_id', () => {
+    const { foreignKeys } = getTableConfig(sessions)
+    const names = foreignKeys.map((fk) => fk.getName())
+    expect(names).toContain('sessions_wallet_id_wallets_id_fk')
   })
 })
