@@ -26,10 +26,15 @@ describe.skipIf(!DATABASE_URL)('role/owner invariants (integration)', () => {
 
   afterAll(async () => {
     if (!db) return
-    for (const accountId of createdAccountIds) {
-      await db.delete(accountWalletRoles).where(eq(accountWalletRoles.accountId, accountId))
-      await db.delete(accounts).where(eq(accounts.id, accountId))
-    }
+    // Owner-invariant checks are deferred to commit.  Keep the dependent-row
+    // removal and account removal in the same transaction so teardown does not
+    // commit a transient zero-owner account.
+    await db.transaction(async (tx) => {
+      for (const accountId of createdAccountIds) {
+        await tx.delete(accountWalletRoles).where(eq(accountWalletRoles.accountId, accountId))
+        await tx.delete(accounts).where(eq(accounts.id, accountId))
+      }
+    })
     for (const walletId of createdWalletIds) {
       await db.delete(wallets).where(eq(wallets.id, walletId))
     }

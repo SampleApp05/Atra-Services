@@ -118,7 +118,18 @@ BEGIN
     RETURN NULL;
   END IF;
 
-  SELECT count(*), max(wallet_id) INTO owner_count, role_owner_id
+  -- A deferred role trigger can run after its account was legitimately deleted
+  -- in the same transaction. The invariant applies only while the account
+  -- exists, so do not treat that completed deletion as a zero-owner account.
+  PERFORM 1
+    FROM "accounts"
+    WHERE "id" = target_account_id;
+
+  IF NOT FOUND THEN
+    RETURN NULL;
+  END IF;
+
+  SELECT count(*), (array_agg(wallet_id ORDER BY wallet_id))[1] INTO owner_count, role_owner_id
     FROM "account_wallet_roles"
     WHERE "account_id" = target_account_id AND "role" = 'OWNER';
 
